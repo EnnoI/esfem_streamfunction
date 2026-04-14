@@ -1,0 +1,10 @@
+mesh->global refinements: 0
+
+esfem_stream->mesh: mesh
+esfem_stream->solver: default
+esfem_stream->solver->relative tolerance: 1.e-6
+esfem_stream->solver->info: 1
+
+esfem_stream->output[]->format: vtk
+esfem_stream->output[]->filename: esfem_stream
+esfem_stream->output[]->name: solution

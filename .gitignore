@@ -1,3 +1,10 @@
+
+# builds
+build-*/
+
+# vscode
+.vscode/
+
 # Prerequisites
 *.d
 
@@ -39,3 +46,13 @@
 
 # debug information files
 *.dwo
+
+# vtk files
+*.vtu
+*.pvd
+
+# meshes
+*.msh
+
+# other output
+*.csv
