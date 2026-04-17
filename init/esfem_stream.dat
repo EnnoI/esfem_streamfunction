@@ -1,7 +1,7 @@
 mesh->global refinements: 0
 
 esfem_stream->mesh: mesh
-esfem_stream->solver: default
+esfem_stream->solver: direct
 esfem_stream->solver->relative tolerance: 1.e-6
 esfem_stream->solver->info: 1
 

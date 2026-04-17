@@ -40,9 +40,11 @@ git clone --branch ${BRANCH} https://gitlab.dune-project.org/core/dune-localfunc
 git clone --branch ${BRANCH} https://gitlab.dune-project.org/staging/dune-functions.git
 git clone --branch ${BRANCH} https://gitlab.dune-project.org/staging/dune-typetree.git
 git clone --branch ${BRANCH} https://gitlab.dune-project.org/extensions/dune-foamgrid.git
+git clone --branch ${BRANCH} https://gitlab.dune-project.org/extensions/dune-alugrid.git
 git clone --branch ${BRANCH} https://gitlab.dune-project.org/extensions/dune-curvedgeometry.git
 git clone --branch ${BRANCH} https://gitlab.dune-project.org/extensions/dune-curvedgrid.git
 git clone --branch master https://gitlab.dune-project.org/extensions/dune-vtk.git
+git clone --branch ${BRANCH} https://gitlab.dune-project.org/extensions/dune-gmsh4.git
 git clone --branch ${BRANCH} https://gitlab.mn.tu-dresden.de/mapo162b/amdis-surfaceextension.git
 git clone --branch ${BRANCH} https://gitlab.dune-project.org/staging/dune-uggrid.git
 git clone --branch ${BRANCH} https://gitlab.com/amdis/amdis.git
