@@ -52,7 +52,8 @@ build-*/
 *.pvd
 
 # meshes
-*.msh
+# *.msh
+*.amc
 
 # other output
 *.csv
