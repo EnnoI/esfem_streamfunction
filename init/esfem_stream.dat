@@ -1,10 +1,13 @@
 mesh->global refinements: 0
 
-esfem_stream->mesh: mesh
-esfem_stream->solver: direct
-esfem_stream->solver->relative tolerance: 1.e-6
-esfem_stream->solver->info: 1
+parameters->kh: 2
+parameters->dt: 1.0
 
-esfem_stream->output[]->format: vtk
-esfem_stream->output[]->filename: esfem_stream
-esfem_stream->output[]->name: solution
+bgn->mesh: mesh
+bgn->solver: direct
+bgn->solver->relative tolerance: 1.e-6
+bgn->solver->info: 1
+
+postprocessing->level: 0
+
+surface->write files->order: 3
