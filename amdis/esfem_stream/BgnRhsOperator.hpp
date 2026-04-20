@@ -88,8 +88,7 @@ public:
           for (int s = 0; s < 3; ++s)
             Ph[r][s] = (r == s ? 1 : 0) - nh[r]*nh[s];
 
-        auto vnAtQP = 1.0;
-        auto const exprValue = localFct(qp.position());
+        auto vnAtQP = localFct(qp.position());
 
         // ----- evaluation of values and gradients of trial/test basis functions ------------
 

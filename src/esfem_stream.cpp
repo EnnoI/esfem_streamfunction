@@ -1,4 +1,5 @@
 #include <string>
+#include <cmath>
 
 #include <amdis/AMDiS.hpp>
 #include <amdis/ProblemStat.hpp>
@@ -39,7 +40,7 @@ int main(int argc, char** argv)
 
   std::unique_ptr<AdaptiveHostGrid> adaptiveHostGridPtr = std::make_unique<AdaptiveHostGrid>(*hostGridPtr);
 
-  int constexpr kg = 3;
+  int constexpr kg = 4;
 
   auto surfaceBasisFactory = power<3>(lagrange<kg>(), blockedInterleaved());
   GlobalBasis surfaceBasis{adaptiveHostGridPtr->leafGridView(), surfaceBasisFactory};
@@ -67,9 +68,9 @@ int main(int argc, char** argv)
 
   // <H*n, y> + <grad Y, grad y> = -<grad X, grad y>
   // <Y * n, h> = <vn*dt, h>
-  // auto vn = [](FieldVector<double,3> const& x){ return 1.0; };
+  auto vn = [](FieldVector<double,3> const& x)->double { return std::cos(x[0]+x[1]); };
   // bgnProb.addVectorOperator( bgnrhs(kh, dt, surface, vn, gradientOf(surfaceFct)) ); // _cache version
-  bgnProb.addVectorOperator( makeOperator(tag::bgnrhs{kh, dt, surface}, gradientOf(surfaceIdentityFct)) );
+  bgnProb.addVectorOperator( makeOperator(tag::bgnrhs{kh, dt, surface}, vn, 20) );
   bgnProb.addMatrixOperator( makeOperator(tag::bgn{kh, surface}, 1.0) );
 
   int order_writer = Parameters::get<int>("surface->write files->order").value_or(2);
@@ -81,10 +82,8 @@ int main(int argc, char** argv)
   surfaceFct << [](FieldVector<double,3> const& x) { return x / x.two_norm(); };
   surfaceIdentityFct << [](FieldVector<double,3> const& x) { return x; };
 
-  writer.addPointData(bgnProb.solution(_H),
-    Dune::Vtk::FieldInfo{"H", 1, Dune::Vtk::RangeTypes::SCALAR});
-  writer.addPointData(bgnProb.solution(_Y),
-    Dune::Vtk::FieldInfo{"Y", 3, Dune::Vtk::RangeTypes::VECTOR});
+  writer.addPointData(bgnProb.solution(_H), Dune::Vtk::FieldInfo{"H", 1, Dune::Vtk::RangeTypes::SCALAR});
+  writer.addPointData(bgnProb.solution(_Y), Dune::Vtk::FieldInfo{"Y", 3, Dune::Vtk::RangeTypes::VECTOR});
 
   // Assemble and solve linear systems
   AdaptInfo adaptInfo("adapt");
@@ -93,5 +92,11 @@ int main(int argc, char** argv)
   bgnProb.solve(adaptInfo);
 
   writer.write("output/esfem1");
+
+  auto& X = surfaceFct.coefficients().impl().vector();
+  auto const& dx = bgnProb.solution(_Y).coefficients().impl().vector();
+  X += dx;
+
+  writer.write("output/esfem2");
 
 }
