@@ -22,6 +22,7 @@
 #include <amdis/esfem_stream/BgnRhsOperator.hpp>
 #include <amdis/esfem_stream/StreamFunctionOperator.hpp>
 #include <amdis/esfem_stream/StreamFunctionRhsOperator.hpp>
+#include <amdis/esfem_stream/ReconstructionOperator.hpp>
 
 #include <src/data/stokes.hpp>
 
@@ -34,6 +35,9 @@ auto const _Hn = Dune::Indices::_5;
 
 auto const _Y = Dune::Indices::_0;
 auto const _H = Dune::Indices::_1;
+
+auto const _u = Dune::Indices::_0;
+auto const _p = Dune::Indices::_1;
 
 using namespace AMDiS;
 int main(int argc, char** argv)
@@ -83,7 +87,7 @@ int main(int argc, char** argv)
   ProblemStat bgnProb("bgn", adaptiveGrid, bgnBasisFactory);
   bgnProb.initialize(INIT_ALL);
 
-  auto reconstructionBasisFactory = power<3>(lagrange<ku-1>());
+  auto reconstructionBasisFactory = composite(power<3>(lagrange<ku-1>()), lagrange<1>());
   ProblemStat reconstructionProb("reconstruction", adaptiveGrid, reconstructionBasisFactory);
   reconstructionProb.initialize(INIT_ALL);
 
@@ -121,6 +125,13 @@ int main(int argc, char** argv)
   averageNormalFct.interpolate_noalias(normalFct, tag::average{});
   bgnProb.addMatrixOperator( makeOperator(tag::bgn{kh, surface}, averageNormalFct, kg) );
 
+  // ---== Define reconstruction problem ==---
+  // <u, v> = <curl phi* + grad psi*, v>
+  reconstructionProb.addMatrixOperator( makeOperator(tag::testvec_trialvec{}, 1.0, kg), _u, _u);
+  reconstructionProb.addVectorOperator( reconstruction(kh, surface, data, prob.solution(_phi), prob.solution(_psi), f) );
+  reconstructionProb.addMatrixOperator( makeOperator(tag::gradtest_gradtrial{}, 1.0, kg), _p, _p);
+  // TODO: add full pressure reconstruction to reconstruction operator
+
   // Define writer
   int order_writer = Parameters::get<int>("surface->write files->order").value_or(2);
   Dune::Vtk::LagrangeDataCollector dataCollector(bgnProb.gridView(), order_writer);
@@ -144,12 +155,14 @@ int main(int argc, char** argv)
 
     writer.addPointData(bgnProb.solution(_H), Dune::Vtk::FieldInfo{"H", 1, Dune::Vtk::RangeTypes::SCALAR});
     writer.addPointData(bgnProb.solution(_Y), Dune::Vtk::FieldInfo{"Y", 3, Dune::Vtk::RangeTypes::VECTOR});
+
+    writer.addPointData(reconstructionProb.solution(_u), Dune::Vtk::FieldInfo{"U", 3, Dune::Vtk::RangeTypes::VECTOR});
   }
 
   // Assemble and solve linear systems
   AdaptInfo adaptInfo("adapt");
 
-  // ---== Solve stream function problem ==---
+  msg("---== Solving stream function problem ==---");
   prob.assemble(adaptInfo);
   prob.solve(adaptInfo);
   auto area = integrate(1.0, prob.gridView(), kg+2);
@@ -157,9 +170,14 @@ int main(int argc, char** argv)
   prob.solution(_psi) << prob.solution(_psi) - integrate(prob.solution(_psi),prob.gridView(),ku+kg+3)/area;
   prob.solution(_phi) << prob.solution(_phi) - integrate(prob.solution(_phi),prob.gridView(),ku+kg+3)/area;
 
-  // ---== Solve BGN problem ==---
+  
+  msg("---== Solving BGN problem ==---");
   bgnProb.assemble(adaptInfo);
   bgnProb.solve(adaptInfo);
+
+  msg("---== Solving reconstruction problem ==---");
+  reconstructionProb.assemble(adaptInfo);
+  reconstructionProb.solve(adaptInfo);
 
   writer.write("output/esfem1");
 
@@ -167,7 +185,6 @@ int main(int argc, char** argv)
   auto& X = surfaceFct.coefficients().impl().vector();
   auto dXDOF = makeDOFVector(surfaceBasis);
   auto dXFct = valueOf(dXDOF);
-  // dXFct << bgnProb.solution(_Y);
   dXFct.interpolate(bgnProb.solution(_Y), tag::assign{});
   auto const& dx = dXFct.coefficients().impl().vector();
   X += dx;
