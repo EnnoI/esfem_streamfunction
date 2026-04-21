@@ -107,7 +107,7 @@ int main(int argc, char** argv)
 
   // ---== Define streamfunction problem ==---
   std::array<double,3> data;
-  auto Hgf = makeGridFunction(prob.solution(_Hn), prob.globalBasis()->gridView());
+  auto Hgf = makeGridFunction(bgnProb.solution(_H), prob.globalBasis()->gridView());
   prob.addMatrixOperator( makeOperator(tag::stream_function{kg, kh, surface, data, Hgf}, 1.0) );
 
   auto f0 = F{c,d};
@@ -117,12 +117,12 @@ int main(int argc, char** argv)
   // ---== Define BGN problem ==---
   // <H*n, y> + <grad Y, grad y> = -<grad X, grad y>
   // <Y * n, h> = <vn*dt, h>
-  auto vn = [](FieldVector<double,3> const& x)->double { return std::cos(x[0]+x[1]); };
-  bgnProb.addVectorOperator( makeOperator(tag::bgnrhs{kh, dt, surface}, prob.solution(_vn), ku) );
+  auto vn = [](FieldVector<double,3> const& x)->double { return std::cos(x[0]+x[1]); }; // tested: does given vn make it more stable? -> yes
+  bgnProb.addVectorOperator( makeOperator(tag::bgnrhs{kh, dt, surface}, vn, ku) );
   auto normalFct = normalGeometryGridFunction(bgnProb.gridView());
   auto averageNormalDOF = makeDOFVector(surfaceBasis); 
   auto averageNormalFct = valueOf(averageNormalDOF);
-  averageNormalFct.interpolate_noalias(normalFct, tag::average{});
+  averageNormalFct.interpolate_noalias(normalFct, tag::average{}); // tested: is this better than the local interpolated normals? -> no
   bgnProb.addMatrixOperator( makeOperator(tag::bgn{kh, surface}, averageNormalFct, kg) );
 
   // ---== Define reconstruction problem ==---
@@ -133,62 +133,69 @@ int main(int argc, char** argv)
   // TODO: add full pressure reconstruction to reconstruction operator
 
   // Define writer
-  int order_writer = Parameters::get<int>("surface->write files->order").value_or(2);
+  int order_writer = Parameters::get<int>("surface->write files->order").value_or(1);
   Dune::Vtk::LagrangeDataCollector dataCollector(bgnProb.gridView(), order_writer);
-  Dune::VtkUnstructuredGridWriter writer(dataCollector);
+  Dune::Vtk::UnstructuredGridWriter writer(dataCollector);
+  Dune::Vtk::PvdWriter pvdwriter(writer);
 
-  adaptiveGrid.globalRefine(Parameters::get<int>("postprocessing->level").value_or(1));
+  adaptiveGrid.globalRefine(Parameters::get<int>("postprocessing->level").value_or(0));
   // bgnProb.globalRefine(Parameters::get<int>("postprocessing->level").value_or(1));
 
   surfaceFct << [](FieldVector<double,3> const& x) { return x / x.two_norm(); };
   surfaceIdentityFct << [](FieldVector<double,3> const& x) { return x; };
-  prob.solution(_Hn) << [](FieldVector<double,3> const& x) { return -2.0; };
+  // prob.solution(_Hn) << [](FieldVector<double,3> const& x) { return -2.0; };
+  bgnProb.solution(_H) << [](FieldVector<double,3> const& x) { return -2.0; };
   
   // Add point data to writer
   {
-    writer.addPointData(prob.solution(_phi), Dune::Vtk::FieldInfo{"phi", 1, Dune::Vtk::RangeTypes::SCALAR});
-    writer.addPointData(prob.solution(_psi), Dune::Vtk::FieldInfo{"psi", 1, Dune::Vtk::RangeTypes::SCALAR});
-    writer.addPointData(prob.solution(_omega), Dune::Vtk::FieldInfo{"omega", 1, Dune::Vtk::RangeTypes::SCALAR});
-    writer.addPointData(prob.solution(_vn), Dune::Vtk::FieldInfo{"vn", 1, Dune::Vtk::RangeTypes::SCALAR});
-    writer.addPointData(prob.solution(_pn), Dune::Vtk::FieldInfo{"pn", 1, Dune::Vtk::RangeTypes::SCALAR});
-    writer.addPointData(prob.solution(_Hn), Dune::Vtk::FieldInfo{"Hn", 1, Dune::Vtk::RangeTypes::SCALAR});
+    pvdwriter.addPointData(prob.solution(_phi), Dune::Vtk::FieldInfo{"phi", 1, Dune::Vtk::RangeTypes::SCALAR});
+    pvdwriter.addPointData(prob.solution(_psi), Dune::Vtk::FieldInfo{"psi", 1, Dune::Vtk::RangeTypes::SCALAR});
+    pvdwriter.addPointData(prob.solution(_omega), Dune::Vtk::FieldInfo{"omega", 1, Dune::Vtk::RangeTypes::SCALAR});
+    pvdwriter.addPointData(prob.solution(_vn), Dune::Vtk::FieldInfo{"vn", 1, Dune::Vtk::RangeTypes::SCALAR});
+    pvdwriter.addPointData(prob.solution(_pn), Dune::Vtk::FieldInfo{"pn", 1, Dune::Vtk::RangeTypes::SCALAR});
+    pvdwriter.addPointData(prob.solution(_Hn), Dune::Vtk::FieldInfo{"Hn", 1, Dune::Vtk::RangeTypes::SCALAR});
 
-    writer.addPointData(bgnProb.solution(_H), Dune::Vtk::FieldInfo{"H", 1, Dune::Vtk::RangeTypes::SCALAR});
-    writer.addPointData(bgnProb.solution(_Y), Dune::Vtk::FieldInfo{"Y", 3, Dune::Vtk::RangeTypes::VECTOR});
+    pvdwriter.addPointData(bgnProb.solution(_H), Dune::Vtk::FieldInfo{"H", 1, Dune::Vtk::RangeTypes::SCALAR});
+    pvdwriter.addPointData(bgnProb.solution(_Y), Dune::Vtk::FieldInfo{"Y", 3, Dune::Vtk::RangeTypes::VECTOR});
 
-    writer.addPointData(reconstructionProb.solution(_u), Dune::Vtk::FieldInfo{"U", 3, Dune::Vtk::RangeTypes::VECTOR});
+    pvdwriter.addPointData(reconstructionProb.solution(_u), Dune::Vtk::FieldInfo{"U", 3, Dune::Vtk::RangeTypes::VECTOR});
   }
 
   // Assemble and solve linear systems
   AdaptInfo adaptInfo("adapt");
 
-  msg("---== Solving stream function problem ==---");
-  prob.assemble(adaptInfo);
-  prob.solve(adaptInfo);
-  auto area = integrate(1.0, prob.gridView(), kg+2);
-  // enforce \int \psi = 0 and \int \phi = 0
-  prob.solution(_psi) << prob.solution(_psi) - integrate(prob.solution(_psi),prob.gridView(),ku+kg+3)/area;
-  prob.solution(_phi) << prob.solution(_phi) - integrate(prob.solution(_phi),prob.gridView(),ku+kg+3)/area;
+  for (int step = 0; step < numSteps; ++step) {
 
-  
-  msg("---== Solving BGN problem ==---");
-  bgnProb.assemble(adaptInfo);
-  bgnProb.solve(adaptInfo);
+    msg("---== Solving stream function problem ==---");
+    prob.assemble(adaptInfo);
+    prob.solve(adaptInfo);
+    auto area = integrate(1.0, prob.gridView(), kg+2);
+    // enforce \int \psi = 0 and \int \phi = 0
+    prob.solution(_psi) << prob.solution(_psi) - integrate(prob.solution(_psi),prob.gridView(),ku+kg+3)/area;
+    prob.solution(_phi) << prob.solution(_phi) - integrate(prob.solution(_phi),prob.gridView(),ku+kg+3)/area;
 
-  msg("---== Solving reconstruction problem ==---");
-  reconstructionProb.assemble(adaptInfo);
-  reconstructionProb.solve(adaptInfo);
+    
+    msg("---== Solving BGN problem ==---");
+    bgnProb.assemble(adaptInfo);
+    bgnProb.solve(adaptInfo);
 
-  writer.write("output/esfem1");
+    msg("---== Solving reconstruction problem ==---");
+    reconstructionProb.assemble(adaptInfo);
+    reconstructionProb.solve(adaptInfo);
 
-  // Evolve surface
-  auto& X = surfaceFct.coefficients().impl().vector();
-  auto dXDOF = makeDOFVector(surfaceBasis);
-  auto dXFct = valueOf(dXDOF);
-  dXFct.interpolate(bgnProb.solution(_Y), tag::assign{});
-  auto const& dx = dXFct.coefficients().impl().vector();
-  X += dx;
+    // writer.write("output/esfem1");
+    pvdwriter.writeTimestep(t, "esfemstr", "output/");
 
-  writer.write("output/esfem2");
+    // Evolve surface
+    auto& X = surfaceFct.coefficients().impl().vector();
+    auto dXDOF = makeDOFVector(surfaceBasis);
+    auto dXFct = valueOf(dXDOF);
+    dXFct.interpolate(bgnProb.solution(_Y), tag::assign{});
+    auto const& dx = dXFct.coefficients().impl().vector();
+    X += dx;
+
+    t += dt;
+    // writer.write("output/esfem2");
+  }
 
 }
