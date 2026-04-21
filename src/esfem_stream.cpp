@@ -15,6 +15,9 @@
 #include <dune/vtk/vtkwriter.hh>
 #include <dune/vtk/datacollectors/lagrangedatacollector.hh>
 
+#include <amdis/gridfunctions/GeometryGridFunctions.hpp>
+#include <amdis/interpolators/AverageInterpolator.hpp>
+
 #include <amdis/esfem_stream/BgnOperator.hpp>
 #include <amdis/esfem_stream/BgnRhsOperator.hpp>
 #include <amdis/esfem_stream/StreamFunctionOperator.hpp>
@@ -76,14 +79,24 @@ int main(int argc, char** argv)
   Prob prob("esfem_stream", adaptiveGrid);
   prob.initialize(INIT_ALL);
 
-  auto bgnBasisFactory = composite(surfaceBasisFactory, lagrange<kg>()); // Y, H
+  auto bgnBasisFactory = composite(surfaceBasisFactory, lagrange<1>()); // Y, H
   ProblemStat bgnProb("bgn", adaptiveGrid, bgnBasisFactory);
   bgnProb.initialize(INIT_ALL);
 
+  auto reconstructionBasisFactory = power<3>(lagrange<ku-1>());
+  ProblemStat reconstructionProb("reconstruction", adaptiveGrid, reconstructionBasisFactory);
+  reconstructionProb.initialize(INIT_ALL);
+
   // General parameters
+  // Time stepping
+  double t = 0;
   double const dt = Parameters::get<double>("parameters->dt").value_or(1e-3);
+  double const tend = Parameters::get<double>("parameters->tend").value_or(1e-3);
+  std::size_t const numSteps = std::ceil(tend/dt);
+  // surface orders
   int const kh = Parameters::get<int>("parameters->kh").value_or(2);
   double surface = 1.0; // dummy argument
+  // RHS
   double const alpha = Parameters::get<double>("parameters->f_T").value_or(1.0);
   double const c = Parameters::get<double>("parameters->c").value_or(0.95);
   double const d = Parameters::get<double>("parameters->d").value_or(0.96);
@@ -101,9 +114,14 @@ int main(int argc, char** argv)
   // <H*n, y> + <grad Y, grad y> = -<grad X, grad y>
   // <Y * n, h> = <vn*dt, h>
   auto vn = [](FieldVector<double,3> const& x)->double { return std::cos(x[0]+x[1]); };
-  bgnProb.addVectorOperator( makeOperator(tag::bgnrhs{kh, dt, surface}, prob.solution(_vn), 20) );
-  bgnProb.addMatrixOperator( makeOperator(tag::bgn{kh, surface}, 1.0) );
+  bgnProb.addVectorOperator( makeOperator(tag::bgnrhs{kh, dt, surface}, prob.solution(_vn), ku) );
+  auto normalFct = normalGeometryGridFunction(bgnProb.gridView());
+  auto averageNormalDOF = makeDOFVector(surfaceBasis); 
+  auto averageNormalFct = valueOf(averageNormalDOF);
+  averageNormalFct.interpolate_noalias(normalFct, tag::average{});
+  bgnProb.addMatrixOperator( makeOperator(tag::bgn{kh, surface}, averageNormalFct, kg) );
 
+  // Define writer
   int order_writer = Parameters::get<int>("surface->write files->order").value_or(2);
   Dune::Vtk::LagrangeDataCollector dataCollector(bgnProb.gridView(), order_writer);
   Dune::VtkUnstructuredGridWriter writer(dataCollector);
@@ -134,6 +152,10 @@ int main(int argc, char** argv)
   // ---== Solve stream function problem ==---
   prob.assemble(adaptInfo);
   prob.solve(adaptInfo);
+  auto area = integrate(1.0, prob.gridView(), kg+2);
+  // enforce \int \psi = 0 and \int \phi = 0
+  prob.solution(_psi) << prob.solution(_psi) - integrate(prob.solution(_psi),prob.gridView(),ku+kg+3)/area;
+  prob.solution(_phi) << prob.solution(_phi) - integrate(prob.solution(_phi),prob.gridView(),ku+kg+3)/area;
 
   // ---== Solve BGN problem ==---
   bgnProb.assemble(adaptInfo);
@@ -145,7 +167,8 @@ int main(int argc, char** argv)
   auto& X = surfaceFct.coefficients().impl().vector();
   auto dXDOF = makeDOFVector(surfaceBasis);
   auto dXFct = valueOf(dXDOF);
-  dXFct << bgnProb.solution(_Y);
+  // dXFct << bgnProb.solution(_Y);
+  dXFct.interpolate(bgnProb.solution(_Y), tag::assign{});
   auto const& dx = dXFct.coefficients().impl().vector();
   X += dx;
 

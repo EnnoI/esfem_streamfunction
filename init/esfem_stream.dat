@@ -3,8 +3,9 @@ mesh->global refinements: 0
 parameters->bending modulus: 1.0
 parameters->kill regularization: 1.0
 parameters->mu: 1.0
-parameters->kh: 3
-parameters->dt: 0.5
+parameters->kh: 4
+parameters->dt: 0.1
+parameters->tend: 1.0
 parameters->f_T: 1.0
 parameters->c: 0.95
 parameters->d: 0.96
@@ -19,6 +20,6 @@ bgn->solver: direct
 bgn->solver->relative tolerance: 1.e-6
 bgn->solver->info: 1
 
-postprocessing->level: 0
+postprocessing->level: 2
 
-surface->write files->order: 2
+surface->write files->order: 3

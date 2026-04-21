@@ -40,7 +40,7 @@ public:
 
   template <class CG, class Node, class Quad, class LocalFct, class Mat>
   void assemble(CG const& contextGeo, Node const& node, Node const& colNode,
-                Quad const& /*quad*/, LocalFct const& /*localFct*/, Mat& elementMatrix) const
+                Quad const& /*quad*/, LocalFct const& localFct, Mat& elementMatrix) const
   {
     using namespace Dune::Indices;
     static_assert(CG::dim == 2);
@@ -98,6 +98,10 @@ public:
 
       auto nh1_nrm = nh1.two_norm();
       nh1 /= nh1_nrm;
+
+      GlobalCoordinate nhAtQP = localFct(qp.position());
+
+      // nh1 = nhAtQP;
 
       FieldMatrix<T,3,3> Ph1;
       for (int r = 0; r < 3; ++r) {

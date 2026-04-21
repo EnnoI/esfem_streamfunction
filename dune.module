@@ -6,5 +6,5 @@ Module: esfem_stream
 Version: 0.0
 Maintainer: enno.igel@mailbox.tu-dresden.de
 
-Depends: amdis dune-curvedgrid dune-foamgrid dune-alugrid
+Depends: amdis dune-curvedgrid dune-foamgrid dune-alugrid amdis-surfaceextension
 # Suggests: add additional optional dune modules here

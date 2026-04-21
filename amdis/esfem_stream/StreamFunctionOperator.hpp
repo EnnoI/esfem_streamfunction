@@ -245,7 +245,7 @@ public:
         for (std::size_t j = 0; j < numPhiLocalFE; ++j) {
           auto const local_i = phiNode0.localIndex(i);
           auto const local_j = phiNode1.localIndex(j);
-          elementMatrix[local_i][local_j] -= (2*mu*K - reg) * dot(phiGradients[j], phiGradients[i]) * dSh;
+          elementMatrix[local_i][local_j] -= (2*mu*K - reg) * dot(phiGradients[j], phiGradients[i]) * dSh; // reg or mu*reg, + or - ?
         }
       }
       // -<2mu P div(v_N S), curl varphi> = -2mu<grad v_N S + v_N grad H, curl varphi>
@@ -274,7 +274,7 @@ public:
         for (std::size_t j = 0; j < numPsiLocalFE; ++j) {
           auto const local_i = psiNode0.localIndex(i);
           auto const local_j = psiNode1.localIndex(j);
-          elementMatrix[local_i][local_j] -= (2*mu*K - reg) * dot(psiGradients[j], psiGradients[i]) * dSh;
+          elementMatrix[local_i][local_j] -= (2*mu*K - reg) * dot(psiGradients[j], psiGradients[i]) * dSh; // reg or mu*reg, + or - ?
         }
       }
       // <2mu grad(v_N H), grad zeta> = 2mu <grad v_N H + v_N grad H, grad zeta>
@@ -320,12 +320,12 @@ public:
           elementMatrix[local_i][local_j] -= 2 * mu * dot(cross(nh1,phiGradients[j]), div_y_N_S[i]) * dSh; // + or - ??
         }
       }
-      // <2 mu v_N S, y_N S>
+      // <2 mu v_N S, y_N S> - reg * <v_N, y_N>
       for (std::size_t i = 0; i < numVnLocalFE; ++i) {
         for (std::size_t j = 0; j < numVnLocalFE; ++j) {
           auto const local_i = vnNode0.localIndex(i);
           auto const local_j = vnNode1.localIndex(j);
-          elementMatrix[local_i][local_j] += 2 * mu * SdotS * vnShapeValues[i] * vnShapeValues[j] * dSh;
+          elementMatrix[local_i][local_j] += (2 * mu * SdotS - reg) * vnShapeValues[i] * vnShapeValues[j] * dSh;
         }
       }
       // <-pH, y_N>
