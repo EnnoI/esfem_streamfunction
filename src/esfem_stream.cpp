@@ -59,7 +59,8 @@ int main(int argc, char** argv)
   std::unique_ptr<AdaptiveHostGrid> adaptiveHostGridPtr = std::make_unique<AdaptiveHostGrid>(*hostGridPtr);
 
   int constexpr kg = 4; // order of geometry
-  int constexpr ku = 2; // lagrange order of esfem streamfunction problem
+  int constexpr ku = 1; // lagrange order of esfem streamfunction problem
+  // tested: same and different orders
 
   auto surfaceBasisFactory = power<3>(lagrange<kg>(), blockedInterleaved());
   GlobalBasis hostSurfaceBasis{adaptiveHostGridPtr->leafGridView(), surfaceBasisFactory};
@@ -83,11 +84,11 @@ int main(int argc, char** argv)
   Prob prob("esfem_stream", adaptiveGrid);
   prob.initialize(INIT_ALL);
 
-  auto bgnBasisFactory = composite(surfaceBasisFactory, lagrange<1>()); // Y, H
+  auto bgnBasisFactory = composite(surfaceBasisFactory, lagrange<kg>()); // Y, H
   ProblemStat bgnProb("bgn", adaptiveGrid, bgnBasisFactory);
   bgnProb.initialize(INIT_ALL);
 
-  auto reconstructionBasisFactory = composite(power<3>(lagrange<ku-1>()), lagrange<1>());
+  auto reconstructionBasisFactory = composite(power<3>(lagrange<ku>()), lagrange<1>());
   ProblemStat reconstructionProb("reconstruction", adaptiveGrid, reconstructionBasisFactory);
   reconstructionProb.initialize(INIT_ALL);
 
@@ -118,11 +119,11 @@ int main(int argc, char** argv)
   // <H*n, y> + <grad Y, grad y> = -<grad X, grad y>
   // <Y * n, h> = <vn*dt, h>
   auto vn = [](FieldVector<double,3> const& x)->double { return std::cos(x[0]+x[1]); }; // tested: does given vn make it more stable? -> yes
-  bgnProb.addVectorOperator( makeOperator(tag::bgnrhs{kh, dt, surface}, vn, ku) );
+  bgnProb.addVectorOperator( makeOperator(tag::bgnrhs{kh, dt, surface}, prob.solution(_vn), ku) );
   auto normalFct = normalGeometryGridFunction(bgnProb.gridView());
   auto averageNormalDOF = makeDOFVector(surfaceBasis); 
   auto averageNormalFct = valueOf(averageNormalDOF);
-  averageNormalFct.interpolate_noalias(normalFct, tag::average{}); // tested: is this better than the local interpolated normals? -> no
+  averageNormalFct.interpolate_noalias(normalFct, tag::average{}); // tested: is this better than the local interpolated normals? -> not noticable
   bgnProb.addMatrixOperator( makeOperator(tag::bgn{kh, surface}, averageNormalFct, kg) );
 
   // ---== Define reconstruction problem ==---
