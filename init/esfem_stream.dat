@@ -4,9 +4,9 @@ parameters->bending modulus: 1.0
 parameters->kill regularization: 1.0
 parameters->mu: 1.0
 parameters->kh: 3
-parameters->dt: 0.02
-parameters->tend: 0.2
-parameters->f_T: 1.0
+parameters->dt: 0.1
+parameters->tend: 1.0
+parameters->f_T: 0.0
 parameters->c: 0.95
 parameters->d: 0.96
 

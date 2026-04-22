@@ -100,6 +100,9 @@ public:
     auto const& YNode0 = node.child(_6);
     auto const& YNode1 = colNode.child(_6);
 
+    auto const& scaNode0 = node.child(_7);
+    auto const& scaNode1 = colNode.child(_7);
+
     std::size_t numPhiLocalFE = phiNode0.finiteElement().size();
     std::size_t numPsiLocalFE = psiNode0.finiteElement().size();
     std::size_t numOmegaLocalFE = omegaNode0.finiteElement().size();
@@ -107,6 +110,7 @@ public:
     std::size_t numPnLocalFE = pnNode0.finiteElement().size();
     std::size_t numHLocalFE = HNode0.finiteElement().size();
     std::size_t numYLocalFE = YNode0.child(0).finiteElement().size();
+    std::size_t numScaLocalFE = scaNode0.finiteElement().size();
 
     using GlobalCoordinate = typename CG::Geometry::GlobalCoordinate;
     using T = ctype;
@@ -212,6 +216,7 @@ public:
       auto const& pnShapeValues = pnNode0.localBasisValuesAt(qp.position());
       auto const& HShapeValues = HNode0.localBasisValuesAt(qp.position());
       auto const& YShapeValues = YNode0.child(0).localBasisValuesAt(qp.position());
+      auto const& scaShapeValues = scaNode0.localBasisValuesAt(qp.position());
 
       auto const& phiShapeGradients = phiNode0.localBasisJacobiansAt(qp.position());
       auto const& psiShapeGradients = psiNode0.localBasisJacobiansAt(qp.position());
@@ -413,7 +418,7 @@ public:
           }
         }
       }
-      // <vn*dt, h>
+      // -<vn*dt, h>
       for (std::size_t i = 0; i < numHLocalFE; ++i) {
         for (std::size_t j = 0; j < numVnLocalFE; ++j) {
           auto const local_i = HNode0.localIndex(i);
@@ -442,6 +447,17 @@ public:
             auto const local_j = HNode1.localIndex(j);
             elementMatrix[local_i][local_j] += HShapeValues[j] * YShapeValues[i]*nh1[r] * dSh;
           }
+        }
+      }
+
+      // ---== vn constraint ==---
+      // <vn, 1> = 0
+      for (std::size_t i = 0; i < numScaLocalFE; ++i) {
+        for (std::size_t j = 0; j < numVnLocalFE; ++j) {
+            const auto local_i = scaNode0.localIndex(i);
+            const auto local_j = vnNode1.localIndex(j);
+
+            elementMatrix[local_i][local_j] += vnShapeValues[j] * scaShapeValues[i] * dSh;
         }
       }
     }

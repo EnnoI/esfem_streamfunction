@@ -14,6 +14,7 @@
 #include <dune/vtk/gridcreators/lagrangegridcreator.hh>
 #include <dune/vtk/vtkwriter.hh>
 #include <dune/vtk/datacollectors/lagrangedatacollector.hh>
+#include <dune/scalar/scalarbasis.hh>
 
 #include <amdis/gridfunctions/GeometryGridFunctions.hpp>
 #include <amdis/interpolators/AverageInterpolator.hpp>
@@ -98,7 +99,8 @@ int main(int argc, char** argv)
     lagrange<ku>(),                 // vn
     lagrange<ku>(),                 // pn
     lagrange<ku>(),                 // Hn
-    surfaceBasisFactory);           // Yn
+    surfaceBasisFactory,            // Yn
+    scalar());                      // int vn = 0
   ProblemStat implProb("impl_stream", adaptiveGrid, implBasisFactory);
   implProb.initialize(INIT_ALL);
 
@@ -145,11 +147,10 @@ int main(int argc, char** argv)
   implProb.addMatrixOperator( makeOperator(tag::impl_stream_function{kg, kh, surface, data, H_old}, 1.0) );
   implProb.addVectorOperator( makeOperator(tag::impl_stream_function_rhs{kh, surface, H_old}, f, 20) );
 
-
   // ---== Define reconstruction problem ==---
   // <u, v> = <curl phi* + grad psi*, v>
   reconstructionProb.addMatrixOperator( makeOperator(tag::testvec_trialvec{}, 1.0, kg), _u, _u);
-  reconstructionProb.addVectorOperator( reconstruction(kh, surface, data, prob.solution(_phi), prob.solution(_psi), f) );
+  reconstructionProb.addVectorOperator( reconstruction(kh, surface, data, implProb.solution(_phi), implProb.solution(_psi), f) );
   reconstructionProb.addMatrixOperator( makeOperator(tag::gradtest_gradtrial{}, 1.0, kg), _p, _p);
   // TODO: add full pressure reconstruction to reconstruction operator
 
@@ -170,15 +171,15 @@ int main(int argc, char** argv)
   
   // Add point data to writer
   {
-    pvdwriter.addPointData(prob.solution(_phi), Dune::Vtk::FieldInfo{"phi", 1, Dune::Vtk::RangeTypes::SCALAR});
-    pvdwriter.addPointData(prob.solution(_psi), Dune::Vtk::FieldInfo{"psi", 1, Dune::Vtk::RangeTypes::SCALAR});
-    pvdwriter.addPointData(prob.solution(_omega), Dune::Vtk::FieldInfo{"omega", 1, Dune::Vtk::RangeTypes::SCALAR});
-    pvdwriter.addPointData(prob.solution(_vn), Dune::Vtk::FieldInfo{"vn", 1, Dune::Vtk::RangeTypes::SCALAR});
-    pvdwriter.addPointData(prob.solution(_pn), Dune::Vtk::FieldInfo{"pn", 1, Dune::Vtk::RangeTypes::SCALAR});
-    pvdwriter.addPointData(prob.solution(_Hn), Dune::Vtk::FieldInfo{"Hn", 1, Dune::Vtk::RangeTypes::SCALAR});
+    // pvdwriter.addPointData(prob.solution(_phi), Dune::Vtk::FieldInfo{"phi", 1, Dune::Vtk::RangeTypes::SCALAR});
+    // pvdwriter.addPointData(prob.solution(_psi), Dune::Vtk::FieldInfo{"psi", 1, Dune::Vtk::RangeTypes::SCALAR});
+    // pvdwriter.addPointData(prob.solution(_omega), Dune::Vtk::FieldInfo{"omega", 1, Dune::Vtk::RangeTypes::SCALAR});
+    // pvdwriter.addPointData(prob.solution(_vn), Dune::Vtk::FieldInfo{"vn", 1, Dune::Vtk::RangeTypes::SCALAR});
+    // pvdwriter.addPointData(prob.solution(_pn), Dune::Vtk::FieldInfo{"pn", 1, Dune::Vtk::RangeTypes::SCALAR});
+    // pvdwriter.addPointData(prob.solution(_Hn), Dune::Vtk::FieldInfo{"Hn", 1, Dune::Vtk::RangeTypes::SCALAR});
 
-    pvdwriter.addPointData(bgnProb.solution(_H), Dune::Vtk::FieldInfo{"H", 1, Dune::Vtk::RangeTypes::SCALAR});
-    pvdwriter.addPointData(bgnProb.solution(_Y), Dune::Vtk::FieldInfo{"Y", 3, Dune::Vtk::RangeTypes::VECTOR});
+    // pvdwriter.addPointData(bgnProb.solution(_H), Dune::Vtk::FieldInfo{"H", 1, Dune::Vtk::RangeTypes::SCALAR});
+    // pvdwriter.addPointData(bgnProb.solution(_Y), Dune::Vtk::FieldInfo{"Y", 3, Dune::Vtk::RangeTypes::VECTOR});
 
     pvdwriter.addPointData(reconstructionProb.solution(_u), Dune::Vtk::FieldInfo{"U", 3, Dune::Vtk::RangeTypes::VECTOR});
 
@@ -198,22 +199,22 @@ int main(int argc, char** argv)
 
   for (int step = 0; step < numSteps; ++step) {
 
-    msg("---== Solving stream function problem ==---");
-    prob.assemble(adaptInfo);
-    prob.solve(adaptInfo);
-    auto area = integrate(1.0, prob.gridView(), kg+2);
-    // enforce \int \psi = 0 and \int \phi = 0
-    prob.solution(_psi) << prob.solution(_psi) - integrate(prob.solution(_psi),prob.gridView(),ku+kg+3)/area;
-    prob.solution(_phi) << prob.solution(_phi) - integrate(prob.solution(_phi),prob.gridView(),ku+kg+3)/area;
+    // msg("---== Solving stream function problem ==---");
+    // prob.assemble(adaptInfo);
+    // prob.solve(adaptInfo);
+    // // enforce \int \psi = 0 and \int \phi = 0
+    // prob.solution(_psi) << prob.solution(_psi) - integrate(prob.solution(_psi),prob.gridView(),ku+kg+3)/area;
+    // prob.solution(_phi) << prob.solution(_phi) - integrate(prob.solution(_phi),prob.gridView(),ku+kg+3)/area;
 
     
-    msg("---== Solving BGN problem ==---");
-    bgnProb.assemble(adaptInfo);
-    bgnProb.solve(adaptInfo);
+    // msg("---== Solving BGN problem ==---");
+    // bgnProb.assemble(adaptInfo);
+    // bgnProb.solve(adaptInfo);
 
     msg("---== Solving full BGN+stream problem ==---");
     implProb.assemble(adaptInfo);
     implProb.solve(adaptInfo);
+    auto area = integrate(1.0, implProb.gridView(), kg+2);
     implProb.solution(_psi) << implProb.solution(_psi) - integrate(implProb.solution(_psi),implProb.gridView(),ku+kg+3)/area;
     implProb.solution(_phi) << implProb.solution(_phi) - integrate(implProb.solution(_phi),implProb.gridView(),ku+kg+3)/area;
 
