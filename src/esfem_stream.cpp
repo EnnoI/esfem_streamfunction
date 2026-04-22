@@ -23,6 +23,8 @@
 #include <amdis/esfem_stream/StreamFunctionOperator.hpp>
 #include <amdis/esfem_stream/StreamFunctionRhsOperator.hpp>
 #include <amdis/esfem_stream/ReconstructionOperator.hpp>
+#include <amdis/esfem_stream/ImplStreamFunctionOperator.hpp>
+#include <amdis/esfem_stream/ImplStreamFunctionRhsOperator.hpp>
 
 #include <src/data/stokes.hpp>
 
@@ -32,6 +34,7 @@ auto const _omega = Dune::Indices::_2;
 auto const _vn = Dune::Indices::_3;
 auto const _pn = Dune::Indices::_4;
 auto const _Hn = Dune::Indices::_5;
+auto const _Yn = Dune::Indices::_6;
 
 auto const _Y = Dune::Indices::_0;
 auto const _H = Dune::Indices::_1;
@@ -88,6 +91,17 @@ int main(int argc, char** argv)
   ProblemStat bgnProb("bgn", adaptiveGrid, bgnBasisFactory);
   bgnProb.initialize(INIT_ALL);
 
+  auto implBasisFactory = composite(
+    lagrange<ku>(),                 // phi
+    lagrange<ku>(),                 // psi
+    lagrange<ku>(),                 // omega
+    lagrange<ku>(),                 // vn
+    lagrange<ku>(),                 // pn
+    lagrange<ku>(),                 // Hn
+    surfaceBasisFactory);           // Yn
+  ProblemStat implProb("impl_stream", adaptiveGrid, implBasisFactory);
+  implProb.initialize(INIT_ALL);
+
   auto reconstructionBasisFactory = composite(power<3>(lagrange<ku>()), lagrange<1>());
   ProblemStat reconstructionProb("reconstruction", adaptiveGrid, reconstructionBasisFactory);
   reconstructionProb.initialize(INIT_ALL);
@@ -126,6 +140,12 @@ int main(int argc, char** argv)
   averageNormalFct.interpolate_noalias(normalFct, tag::average{}); // tested: is this better than the local interpolated normals? -> not noticable
   bgnProb.addMatrixOperator( makeOperator(tag::bgn{kh, surface}, averageNormalFct, kg) );
 
+  // ---== Define implicit streamfunction + BGN problem ==---
+  auto H_old = makeGridFunction(implProb.solution(_Hn), prob.globalBasis()->gridView());
+  implProb.addMatrixOperator( makeOperator(tag::impl_stream_function{kg, kh, surface, data, H_old}, 1.0) );
+  implProb.addVectorOperator( makeOperator(tag::impl_stream_function_rhs{kh, surface, H_old}, f, 20) );
+
+
   // ---== Define reconstruction problem ==---
   // <u, v> = <curl phi* + grad psi*, v>
   reconstructionProb.addMatrixOperator( makeOperator(tag::testvec_trialvec{}, 1.0, kg), _u, _u);
@@ -146,6 +166,7 @@ int main(int argc, char** argv)
   surfaceIdentityFct << [](FieldVector<double,3> const& x) { return x; };
   // prob.solution(_Hn) << [](FieldVector<double,3> const& x) { return -2.0; };
   bgnProb.solution(_H) << [](FieldVector<double,3> const& x) { return -2.0; };
+  implProb.solution(_Hn) << [](FieldVector<double,3> const& x) { return -2.0; };
   
   // Add point data to writer
   {
@@ -160,6 +181,16 @@ int main(int argc, char** argv)
     pvdwriter.addPointData(bgnProb.solution(_Y), Dune::Vtk::FieldInfo{"Y", 3, Dune::Vtk::RangeTypes::VECTOR});
 
     pvdwriter.addPointData(reconstructionProb.solution(_u), Dune::Vtk::FieldInfo{"U", 3, Dune::Vtk::RangeTypes::VECTOR});
+
+    pvdwriter.addPointData(implProb.solution(_phi), Dune::Vtk::FieldInfo{"impl_phi", 1, Dune::Vtk::RangeTypes::SCALAR});
+    pvdwriter.addPointData(implProb.solution(_psi), Dune::Vtk::FieldInfo{"impl_psi", 1, Dune::Vtk::RangeTypes::SCALAR});
+    pvdwriter.addPointData(implProb.solution(_omega), Dune::Vtk::FieldInfo{"impl_omega", 1, Dune::Vtk::RangeTypes::SCALAR});
+    pvdwriter.addPointData(implProb.solution(_vn), Dune::Vtk::FieldInfo{"impl_vn", 1, Dune::Vtk::RangeTypes::SCALAR});
+    pvdwriter.addPointData(implProb.solution(_pn), Dune::Vtk::FieldInfo{"impl_pn", 1, Dune::Vtk::RangeTypes::SCALAR});
+    pvdwriter.addPointData(implProb.solution(_Hn), Dune::Vtk::FieldInfo{"impl_Hn", 1, Dune::Vtk::RangeTypes::SCALAR});
+    pvdwriter.addPointData(implProb.solution(_Yn), Dune::Vtk::FieldInfo{"impl_Yn", 3, Dune::Vtk::RangeTypes::VECTOR});
+
+
   }
 
   // Assemble and solve linear systems
@@ -180,6 +211,12 @@ int main(int argc, char** argv)
     bgnProb.assemble(adaptInfo);
     bgnProb.solve(adaptInfo);
 
+    msg("---== Solving full BGN+stream problem ==---");
+    implProb.assemble(adaptInfo);
+    implProb.solve(adaptInfo);
+    implProb.solution(_psi) << implProb.solution(_psi) - integrate(implProb.solution(_psi),implProb.gridView(),ku+kg+3)/area;
+    implProb.solution(_phi) << implProb.solution(_phi) - integrate(implProb.solution(_phi),implProb.gridView(),ku+kg+3)/area;
+
     msg("---== Solving reconstruction problem ==---");
     reconstructionProb.assemble(adaptInfo);
     reconstructionProb.solve(adaptInfo);
@@ -191,7 +228,7 @@ int main(int argc, char** argv)
     auto& X = surfaceFct.coefficients().impl().vector();
     auto dXDOF = makeDOFVector(surfaceBasis);
     auto dXFct = valueOf(dXDOF);
-    dXFct.interpolate(bgnProb.solution(_Y), tag::assign{});
+    dXFct.interpolate(implProb.solution(_Yn), tag::assign{});
     auto const& dx = dXFct.coefficients().impl().vector();
     X += dx;
 

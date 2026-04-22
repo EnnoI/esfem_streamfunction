@@ -1,3 +1,10 @@
+/*
+-----
+Solving the evolving Stokes-Streamfunction equation with the BGN part treated implicitely
+RHS
+-----
+*/
+
 #pragma once
 
 #include <amdis/LocalOperators.hpp>
@@ -15,7 +22,7 @@ namespace AMDiS {
 namespace tag {
 
   template <class Surface, class... GridFunctions>
-  struct streamfunction_rhs {
+  struct impl_stream_function_rhs {
 
     template <class GF>
     using LocalFunction = std::decay_t<decltype(localFunction(Dune::resolveRef(std::declval<GF const&>())))>;
@@ -26,7 +33,7 @@ namespace tag {
     std::tuple<GridFunctions...> gridFcts_;
     std::tuple<LocalFunction<GridFunctions>...> localFcts_;
 
-    streamfunction_rhs(int kh, Surface const& surface, GridFunctions const&... gridFcts) : kh(kh), surface(surface)
+    impl_stream_function_rhs(int kh, Surface const& surface, GridFunctions const&... gridFcts) : kh(kh), surface(surface)
       , gridFcts_(gridFcts...)
       , localFcts_(localFunction(Dune::resolveRef(gridFcts))...)
        {}
@@ -36,15 +43,15 @@ namespace tag {
 
 
 template <class Surface, class... GridFunctions>
-class StreamFunctionRhsOperator
+class ImplStreamFunctionRhsOperator
 {
-  using Self = StreamFunctionRhsOperator;
+  using Self = ImplStreamFunctionRhsOperator;
 
   template <class GF>
   using LocalFunction = std::decay_t<decltype(localFunction(Dune::resolveRef(std::declval<GF const&>())))>;
 
 public:
-  StreamFunctionRhsOperator(tag::streamfunction_rhs<Surface,GridFunctions...> tag) 
+  ImplStreamFunctionRhsOperator(tag::impl_stream_function_rhs<Surface,GridFunctions...> tag) 
     : kh_(tag.kh)
     , surface_(tag.surface)
     , gridFcts_(tag.gridFcts_)
@@ -76,10 +83,13 @@ public:
 
     auto const& HNode0 = node.child(_5);
 
+    auto const& YNode0 = node.child(_6);
+
     std::size_t numPhiLocalFE = phiNode0.finiteElement().size();
     std::size_t numPsiLocalFE = psiNode0.finiteElement().size();
     [[maybe_unused]] std::size_t numVnLocalFE = vnNode0.finiteElement().size();
     std::size_t numHLocalFE = HNode0.finiteElement().size();
+    std::size_t numYLocalFE = YNode0.child(0).finiteElement().size();
 
     using GlobalCoordinate = typename CG::Geometry::GlobalCoordinate;
     using T = typename CG::Geometry::ctype;
@@ -164,15 +174,18 @@ public:
       [[maybe_unused]] auto const& psiShapeValues = psiNode0.localBasisValuesAt(qp.position());
       [[maybe_unused]] auto const& vnShapeValues = vnNode0.localBasisValuesAt(qp.position());
       auto const& HShapeValues = HNode0.localBasisValuesAt(qp.position());
+      auto const& YShapeValues = YNode0.child(0).localBasisValuesAt(qp.position());
 
       auto const& phiShapeGradients = phiNode0.localBasisJacobiansAt(qp.position());
       auto const& psiShapeGradients = psiNode0.localBasisJacobiansAt(qp.position());
       auto const& vnShapeGradients = vnNode0.localBasisJacobiansAt(qp.position());
       auto const& HShapeGradients = HNode0.localBasisJacobiansAt(qp.position());
+      auto const& YShapeGradients = YNode0.child(0).localBasisJacobiansAt(qp.position());
       std::vector<GlobalCoordinate> phiGradients(phiShapeGradients.size());
       std::vector<GlobalCoordinate> psiGradients(psiShapeGradients.size());
       std::vector<GlobalCoordinate> vnGradients(vnShapeGradients.size());
       std::vector<GlobalCoordinate> HGradients(HShapeGradients.size());
+      std::vector<GlobalCoordinate> YGradients(YShapeGradients.size());
       for (std::size_t i = 0; i < phiGradients.size(); ++i)
         jacobian.mv(phiShapeGradients[i][0], phiGradients[i]);
       for (std::size_t i = 0; i < psiGradients.size(); ++i)
@@ -181,18 +194,19 @@ public:
         jacobian.mv(vnShapeGradients[i][0],    vnGradients[i]);
       for (std::size_t i = 0; i < HGradients.size(); ++i)
         jacobian.mv(HShapeGradients[i][0],    HGradients[i]);
+      for (std::size_t i = 0; i < YGradients.size(); ++i)
+        jacobian.mv(YShapeGradients[i][0],     YGradients[i]);
 
       auto const exprValue = localFct(qp.position());
 
-      auto H = S[0][0] + S[1][1] + S[2][2];
-
+      // auto H = S[0][0] + S[1][1] + S[2][2];
       // S^2
-      FieldMatrix<T,3,3> SS(S);
-      SS.leftmultiply(S);
-      // tr(S^2)
-      auto const trSS = SS[0][0] + SS[1][1] + SS[2][2];
-      // K = tr(S)^2 - tr(S^2)
-      auto const K = 0.5*(H*H - trSS);
+      // FieldMatrix<T,3,3> SS(S);
+      // SS.leftmultiply(S);
+      // // tr(S^2)
+      // auto const trSS = SS[0][0] + SS[1][1] + SS[2][2];
+      // // K = tr(S)^2 - tr(S^2)
+      // auto const K = 0.5*(H*H - trSS);
 
       // Compute the actual vector entries
 
@@ -206,29 +220,18 @@ public:
         std::size_t local_i = psiNode0.localIndex(i);
         elementVector[local_i] += dot(exprValue, psiGradients[i]) * dS;
       }
-      // // <f_N, y_N>
-      T kappa = Parameters::get<T>("parameters->bending modulus").value_or(1.0);
-      // f_N = - kappa (Delta H + 0.5*H^3 - 2H K)
-      // <f_N, y_N> = kappa <grad H, grad y_N> - kappa <0.5*H^3 - 2H K, y_N>
-      auto const zero_order_term = 0.5*H*H*H - 2*H*K;
-      for (std::size_t i = 0; i < numVnLocalFE; ++i) {
-        std::size_t local_i = vnNode0.localIndex(i);
-        elementVector[local_i] += kappa * dot(gradHAtQP, vnGradients[i]) * dS;
-        elementVector[local_i] -= kappa * zero_order_term * vnShapeValues[i] * dS;
-      }
 
-      // ---== mean curvature ==---
-      // -<grad X, S h> = -<P, Sh>
-      T Ph1_S(0);
-      for (int r = 0; r < 3; ++r)
-        for (int s = 0; s < 3; ++s)
-          Ph1_S += Ph1[r][s] * S[r][s];
-          
-      for (std::size_t i = 0; i < numHLocalFE; ++i) {
-        std::size_t local_i = HNode0.localIndex(i);
-        elementVector[local_i] -= Ph1_S * HShapeValues[i] * dS;
+      // ---== BGN ==---
+      // ---== <H*n, y> + <grad Y, grad y> = -<grad X, grad y> ==---
+      // -<grad X, grad y> = -<P, grad y>
+      for (std::size_t i = 0; i < numYLocalFE; ++i) {
+        for (int r = 0; r < 3; ++r) {
+          for (int s = 0; s < 3; ++s) {
+            auto const local_i = YNode0.child(s).localIndex(i);
+            elementVector[local_i] -= Ph1[s][r] * YGradients[i][r] * dS;
+          }
+        }
       }
-
     }
   }
 
@@ -240,10 +243,10 @@ public:
 };
 
 template <class Surface, class... GridFunctions, class LC>
-struct GridFunctionOperatorRegistry<tag::streamfunction_rhs<Surface,GridFunctions...>, LC>
+struct GridFunctionOperatorRegistry<tag::impl_stream_function_rhs<Surface,GridFunctions...>, LC>
 {
   static constexpr int degree = 1;
-  using type = StreamFunctionRhsOperator<Surface,GridFunctions...>;
+  using type = ImplStreamFunctionRhsOperator<Surface,GridFunctions...>;
 };
 
 /**
