@@ -4,11 +4,11 @@ parameters->bending modulus: 1.0
 parameters->kill regularization: 1.0
 parameters->mu: 1.0
 parameters->kh: 3
-parameters->dt: 0.1
-parameters->tend: 1.0
+parameters->dt: 0.5
+parameters->tend: 10
 parameters->f_T: 0.0
-parameters->c: 0.95
-parameters->d: 0.96
+parameters->c: 1.0
+parameters->d: 0.9
 
 esfem_stream->mesh: mesh
 esfem_stream->solver: direct

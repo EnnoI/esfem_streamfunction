@@ -21,7 +21,7 @@ namespace AMDiS {
 
 namespace tag {
 
-  template <class Surface, class Data, class... GridFunctions>
+  template <class Surface, class Data, bool with_constraint, class... GridFunctions>
   struct impl_stream_function
   {
 
@@ -36,7 +36,7 @@ namespace tag {
     std::tuple<LocalFunction<GridFunctions>...> localFcts_;
 
 
-    impl_stream_function(int kg, int kh, Surface const& surface, Data& data, GridFunctions const&... gridFcts)
+    impl_stream_function(int kg, int kh, Surface const& surface, Data& data, std::bool_constant<with_constraint>, GridFunctions const&... gridFcts)
       : kg(kg), kh(kh), surface(surface), data(data)
       , gridFcts_(gridFcts...)
       , localFcts_(localFunction(Dune::resolveRef(gridFcts))...)
@@ -46,7 +46,7 @@ namespace tag {
 } // end namespace tag
 
 
-template <class Surface, class Data, class... GridFunctions>
+template <class Surface, class Data, bool with_constraint, class... GridFunctions>
 class ImplStreamFunctionOperator
 {
   using Self = ImplStreamFunctionOperator;
@@ -55,7 +55,7 @@ class ImplStreamFunctionOperator
   using LocalFunction = std::decay_t<decltype(localFunction(Dune::resolveRef(std::declval<GF const&>())))>;
 
 public:
-  ImplStreamFunctionOperator(tag::impl_stream_function<Surface,Data,GridFunctions...> tag)
+  ImplStreamFunctionOperator(tag::impl_stream_function<Surface,Data,with_constraint,GridFunctions...> tag)
     : kg_(tag.kg)
     , kh_(tag.kh)
     , surface_(tag.surface)
@@ -100,9 +100,6 @@ public:
     auto const& YNode0 = node.child(_6);
     auto const& YNode1 = colNode.child(_6);
 
-    auto const& scaNode0 = node.child(_7);
-    auto const& scaNode1 = colNode.child(_7);
-
     std::size_t numPhiLocalFE = phiNode0.finiteElement().size();
     std::size_t numPsiLocalFE = psiNode0.finiteElement().size();
     std::size_t numOmegaLocalFE = omegaNode0.finiteElement().size();
@@ -110,7 +107,6 @@ public:
     std::size_t numPnLocalFE = pnNode0.finiteElement().size();
     std::size_t numHLocalFE = HNode0.finiteElement().size();
     std::size_t numYLocalFE = YNode0.child(0).finiteElement().size();
-    std::size_t numScaLocalFE = scaNode0.finiteElement().size();
 
     using GlobalCoordinate = typename CG::Geometry::GlobalCoordinate;
     using T = ctype;
@@ -216,7 +212,6 @@ public:
       auto const& pnShapeValues = pnNode0.localBasisValuesAt(qp.position());
       auto const& HShapeValues = HNode0.localBasisValuesAt(qp.position());
       auto const& YShapeValues = YNode0.child(0).localBasisValuesAt(qp.position());
-      auto const& scaShapeValues = scaNode0.localBasisValuesAt(qp.position());
 
       auto const& phiShapeGradients = phiNode0.localBasisJacobiansAt(qp.position());
       auto const& psiShapeGradients = psiNode0.localBasisJacobiansAt(qp.position());
@@ -450,8 +445,14 @@ public:
         }
       }
 
+    if constexpr(with_constraint) {
+      auto const& scaNode0 = node.child(_7);
+      auto const& scaNode1 = colNode.child(_7);
+      
+      std::size_t numScaLocalFE = scaNode0.finiteElement().size();
+      auto const& scaShapeValues = scaNode0.localBasisValuesAt(qp.position());
       // ---== vn constraint ==---
-      // <vn, 1> = 0
+      // <v_N, 1>
       for (std::size_t i = 0; i < numScaLocalFE; ++i) {
         for (std::size_t j = 0; j < numVnLocalFE; ++j) {
             const auto local_i = scaNode0.localIndex(i);
@@ -460,6 +461,16 @@ public:
             elementMatrix[local_i][local_j] += vnShapeValues[j] * scaShapeValues[i] * dSh;
         }
       }
+      // <1, y_N>
+      for (std::size_t i = 0; i < numVnLocalFE; ++i) {
+        for (std::size_t j = 0; j < numScaLocalFE; ++j) {
+            const auto local_i = vnNode0.localIndex(i);
+            const auto local_j = scaNode1.localIndex(j);
+
+            elementMatrix[local_i][local_j] += vnShapeValues[i] * scaShapeValues[j] * dSh;
+        }
+      }
+    }
     }
   }
 
@@ -474,11 +485,11 @@ private:
 };
 
 
-template <class Surface, class Data, class... GridFunctions, class LC>
-struct GridFunctionOperatorRegistry<tag::impl_stream_function<Surface,Data,GridFunctions...>, LC>
+template <class Surface, class Data, bool with_constraint, class... GridFunctions, class LC>
+struct GridFunctionOperatorRegistry<tag::impl_stream_function<Surface,Data,with_constraint,GridFunctions...>, LC>
 {
   static constexpr int degree = 2;
-  using type = ImplStreamFunctionOperator<Surface,Data,GridFunctions...>;
+  using type = ImplStreamFunctionOperator<Surface,Data,with_constraint,GridFunctions...>;
 };
 
 
