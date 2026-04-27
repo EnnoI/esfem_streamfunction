@@ -355,14 +355,14 @@ public:
         }
       }
       // -<f_N, y_N>
-      // f_N = - kappa (Delta H + 0.5*H^3 - 2H K)
-      // -<f_N, y_N> = -kappa <grad H, grad y_N> + kappa <0.5*H*H'^2 - 2H K, y_N>
+      // f_N = kappa (Delta H + 0.5*H^3 - 2H K)
+      // -<f_N, y_N> = kappa <grad H, grad y_N> - kappa <0.5*H*H'^2 - 2H K, y_N>
       for (std::size_t i = 0; i < numVnLocalFE; ++i) {
         for (std::size_t j = 0; j < numHLocalFE; ++j) {
           std::size_t local_i = vnNode0.localIndex(i);
           std::size_t local_j = HNode1.localIndex(j);
-          elementMatrix[local_i][local_j] -= kappa * dot(HGradients[j], vnGradients[i]) * dSh;
-          elementMatrix[local_i][local_j] += kappa * HShapeValues[j] * (0.5*H*H - 2 * K) * vnShapeValues[i] * dSh;
+          elementMatrix[local_i][local_j] += kappa * dot(HGradients[j], vnGradients[i]) * dSh;
+          elementMatrix[local_i][local_j] -= kappa * HShapeValues[j] * (0.5*H*H - 2 * K) * vnShapeValues[i] * dSh;
         }
       }
 
