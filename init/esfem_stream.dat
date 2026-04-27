@@ -1,14 +1,19 @@
 mesh->global refinements: 0
 
-parameters->bending modulus: 1.0
+parameters->bending modulus: -1.0
 parameters->kill regularization: 1.0
 parameters->mu: 1.0
-parameters->kh: 3
-parameters->dt: 0.5
-parameters->tend: 10
-parameters->f_T: 0.0
+parameters->kh: 2
+parameters->dt: 0.1
+parameters->tend: 3.0
+parameters->f_T: 0.00 % 667
 parameters->c: 1.0
 parameters->d: 0.9
+
+init->spherical harmonic->l: 5
+init->spherical harmonic->m: 4
+init->spherical harmonic->perturbation factor: 0.2
+init->spherical harmonic->radius: 1.0
 
 esfem_stream->mesh: mesh
 esfem_stream->solver: direct
@@ -25,6 +30,9 @@ bgn->solver: direct
 bgn->solver->relative tolerance: 1.e-6
 bgn->solver->info: 1
 
-postprocessing->level: 1
+reconstruction->solver: direct
+geometry->solver: direct
+
+postprocessing->level: 2
 
 surface->write files->order: 1

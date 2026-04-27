@@ -208,13 +208,13 @@ public:
       }
       // // <f_N, y_N>
       T kappa = Parameters::get<T>("parameters->bending modulus").value_or(1.0);
-      // f_N = - kappa (Delta H + 0.5*H^3 - 2H K)
-      // <f_N, y_N> = kappa <grad H, grad y_N> - kappa <0.5*H^3 - 2H K, y_N>
+      // f_N = kappa (Delta H + 0.5*H^3 - 2H K)
+      // <f_N, y_N> = -kappa <grad H, grad y_N> + kappa <0.5*H^3 - 2H K, y_N>
       auto const zero_order_term = 0.5*H*H*H - 2*H*K;
       for (std::size_t i = 0; i < numVnLocalFE; ++i) {
         std::size_t local_i = vnNode0.localIndex(i);
-        elementVector[local_i] += kappa * dot(gradHAtQP, vnGradients[i]) * dS;
-        elementVector[local_i] -= kappa * zero_order_term * vnShapeValues[i] * dS;
+        elementVector[local_i] -= kappa * dot(gradHAtQP, vnGradients[i]) * dS;
+        elementVector[local_i] += kappa * zero_order_term * vnShapeValues[i] * dS;
       }
 
       // ---== mean curvature ==---

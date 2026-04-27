@@ -327,7 +327,7 @@ public:
         for (std::size_t j = 0; j < numPsiLocalFE; ++j) {
           auto const local_i = vnNode0.localIndex(i);
           auto const local_j = psiNode1.localIndex(j);
-          elementMatrix[local_i][local_j] -= 2 * mu * dot(psiGradients[j], div_y_N_S[i]) * dSh; // + or - ?? - should be correct
+          elementMatrix[local_i][local_j] -= 2 * mu * dot(psiGradients[j], div_y_N_S[i]) * dSh;
         }
       }
       // - 2mu<curl phi, grad y_N S + y_N grad H>
@@ -335,7 +335,7 @@ public:
         for (std::size_t j = 0; j < numPhiLocalFE; ++j) {
           auto const local_i = vnNode0.localIndex(i);
           auto const local_j = phiNode1.localIndex(j);
-          elementMatrix[local_i][local_j] -= 2 * mu * dot(cross(nh1,phiGradients[j]), div_y_N_S[i]) * dSh; // + or - ??
+          elementMatrix[local_i][local_j] -= 2 * mu * dot(cross(nh1,phiGradients[j]), div_y_N_S[i]) * dSh;
         }
       }
       // <2 mu v_N S, y_N S> - reg * <v_N, y_N>
@@ -343,7 +343,7 @@ public:
         for (std::size_t j = 0; j < numVnLocalFE; ++j) {
           auto const local_i = vnNode0.localIndex(i);
           auto const local_j = vnNode1.localIndex(j);
-          elementMatrix[local_i][local_j] += (2 * mu * SdotS - reg) * vnShapeValues[i] * vnShapeValues[j] * dSh; // tested: do we need killing regularization in the normal MB? -> maybe? but doesnt change a lot
+          elementMatrix[local_i][local_j] += (2 * mu * SdotS - 0.0) * vnShapeValues[i] * vnShapeValues[j] * dSh; // tested: do we need killing regularization in the normal MB? -> maybe? but doesnt change a lot
         }
       }
       // <-pH, y_N>

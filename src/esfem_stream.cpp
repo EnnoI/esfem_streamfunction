@@ -61,22 +61,28 @@ int main(int argc, char** argv)
   using AdaptiveHostGrid = AdaptiveGrid<HostGrid>;
   using namespace Dune::Functions::BasisFactory;
 
-  // const std::string meshfile = "macro/sphere.msh";
-  // using Reader = Dune::GmshReader<HostGrid>;
-  // auto hostGridPtr = Reader::read(meshfile,true,false);
-
-  const std::string meshfile = "macro/h025a.vtu";
-  std::unique_ptr<HostGrid> hostGridPtr = Dune::Vtk::VtkReader<HostGrid, Dune::Vtk::LagrangeGridCreator<HostGrid>>::createGridFromFile(meshfile);
-
-  std::unique_ptr<AdaptiveHostGrid> adaptiveHostGridPtr = std::make_unique<AdaptiveHostGrid>(*hostGridPtr);
-
-  int constexpr kg = 4; // order of geometry
-  int constexpr ku = 1; // lagrange order of esfem streamfunction problem
-  // tested: same and different orders
   double const c = Parameters::get<double>("parameters->c").value_or(0.95);
   double const d = Parameters::get<double>("parameters->d").value_or(0.96);
+  // auto const surface = Surface{c, d};
+  // const std::string meshfile = "macro/h025a.vtu";
+  // std::unique_ptr<HostGrid> hostGridPtr = Dune::Vtk::VtkReader<HostGrid, Dune::Vtk::LagrangeGridCreator<HostGrid>>::createGridFromFile(meshfile);
 
-  auto const surface = Surface{c, d}; // Sphere{};
+  const std::string meshfile = "macro/sphere.msh";
+  using Reader = Dune::GmshReader<HostGrid>;
+  auto hostGridPtr = Reader::read(meshfile,true,false);
+  // auto const surface = Sphere{};
+  unsigned l{Parameters::get<unsigned>("init->spherical harmonic->l").value()};
+  int m{Parameters::get<int>("init->spherical harmonic->m").value()};
+  double factor{Parameters::get<double>("init->spherical harmonic->perturbation factor").value()};
+  double radius{Parameters::get<double>("init->spherical harmonic->radius").value()};
+  // auto const surface = SphericalHarmonic{l,m,factor,radius};
+  auto const surface = PerturbedSphere{};
+  
+  std::unique_ptr<AdaptiveHostGrid> adaptiveHostGridPtr = std::make_unique<AdaptiveHostGrid>(*hostGridPtr);
+
+  int constexpr kg = 2; // order of geometry
+  int constexpr ku = 2; // lagrange order of esfem streamfunction problem
+  // tested: same and different orders
 
   auto surfaceBasisFactory = power<3>(lagrange<kg>(), blockedInterleaved());
   GlobalBasis hostSurfaceBasis{adaptiveHostGridPtr->leafGridView(), surfaceBasisFactory};
@@ -158,17 +164,17 @@ int main(int argc, char** argv)
   auto Hgf = makeGridFunction(bgnProb.solution(_H), prob.globalBasis()->gridView());
   prob.addMatrixOperator( makeOperator(tag::stream_function{kg, kh, surface, data, Hgf}, 1.0) );
 
-  // auto f00 = F{c,d};
+  auto f00 = F{c,d};
   auto f0 = [&](FieldVector<double,3> const& x) { 
     FieldVector<double,3> fx = x/x.two_norm();
     // fx[0] *= std::cos(fx[0]);
     // fx[1] *= -std::sin(fx[1]);
     // fx[2] *= fx[2];
     
-    return std::cos(fx[0]) * fx; 
+    return alpha * f00(fx); 
   };
   auto f = Dune::analyticGridFunction<Grid>(f0);
-  prob.addVectorOperator( makeOperator(tag::streamfunction_rhs{kh, surface, Hgf}, alpha*f, 20) );
+  prob.addVectorOperator( makeOperator(tag::streamfunction_rhs{kh, surface, Hgf}, f, 20) );
 
   // ---== Define BGN problem ==---
   // <H*n, y> + <grad Y, grad y> = -<grad X, grad y>
@@ -208,7 +214,7 @@ int main(int argc, char** argv)
     // pvdwriter.addPointData(prob.solution(_pn), Dune::Vtk::FieldInfo{"pn", 1, Dune::Vtk::RangeTypes::SCALAR});
     // pvdwriter.addPointData(prob.solution(_Hn), Dune::Vtk::FieldInfo{"Hn", 1, Dune::Vtk::RangeTypes::SCALAR});
 
-    // pvdwriter.addPointData(bgnProb.solution(_H), Dune::Vtk::FieldInfo{"H", 1, Dune::Vtk::RangeTypes::SCALAR});
+    pvdwriter.addPointData(bgnProb.solution(_H), Dune::Vtk::FieldInfo{"H", 1, Dune::Vtk::RangeTypes::SCALAR});
     // pvdwriter.addPointData(bgnProb.solution(_Y), Dune::Vtk::FieldInfo{"Y", 3, Dune::Vtk::RangeTypes::VECTOR});
 
     pvdwriter.addPointData(reconstructionProb.solution(_u), Dune::Vtk::FieldInfo{"U", 3, Dune::Vtk::RangeTypes::VECTOR});
@@ -231,7 +237,15 @@ int main(int argc, char** argv)
   // Assemble and solve linear systems
   AdaptInfo adaptInfo("adapt");
 
+  msg("---== Solving BGN problem ==---");
+  bgnProb.assemble(adaptInfo);
+  bgnProb.solve(adaptInfo);
+
+  implProb.solution(_Hn) << bgnProb.solution(_H);
+
   for (int step = 0; step < numSteps; ++step) {
+
+    msg("///////////////// Timestep: " + std::to_string(step+1) + "/" + std::to_string(numSteps));
 
     // msg("---== Solving stream function problem ==---");
     // prob.assemble(adaptInfo);
@@ -240,15 +254,11 @@ int main(int argc, char** argv)
     // prob.solution(_psi) << prob.solution(_psi) - integrate(prob.solution(_psi),prob.gridView(),ku+kg+3)/area;
     // prob.solution(_phi) << prob.solution(_phi) - integrate(prob.solution(_phi),prob.gridView(),ku+kg+3)/area;
 
-    
-    // msg("---== Solving BGN problem ==---");
-    // bgnProb.assemble(adaptInfo);
-    // bgnProb.solve(adaptInfo);
-
-    msg("---== Solving geometry problem ==---");
-    surfaceIdentityFct << [](FieldVector<double,3> const& x) { return x; };
-    geoProb.assemble(adaptInfo);
-    geoProb.solve(adaptInfo);
+    // msg("---== Solving geometry problem ==---");
+    // surfaceIdentityFct << [](FieldVector<double,3> const& x) { return x; };
+    // geoProb.assemble(adaptInfo);
+    // geoProb.solve(adaptInfo);
+    // TODO: add the computed shape operator to implProb to see if that changes something
 
     msg("---== Solving full BGN+stream problem ==---");
     implProb.assemble(adaptInfo);
