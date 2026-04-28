@@ -67,9 +67,18 @@ public:
   // get a local functions
   auto& H()           { return std::get<0>(localFcts_); }
   auto& H() const     { return std::get<0>(localFcts_); }
+  auto& S1()          { return std::get<1>(localFcts_); }
+  auto& S1() const    { return std::get<1>(localFcts_); }
+  auto& S2()          { return std::get<2>(localFcts_); }
+  auto& S2() const    { return std::get<2>(localFcts_); }
+  auto& S3()          { return std::get<3>(localFcts_); }
+  auto& S3() const    { return std::get<3>(localFcts_); }
 
   // evaluate a local function in a local coordinate x
   auto H(Dune::FieldVector<double,2> const& x) const     { return H()(x); }
+  auto S1(Dune::FieldVector<double,2> const& x) const    { return S1()(x); }
+  auto S2(Dune::FieldVector<double,2> const& x) const    { return S2()(x); }
+  auto S3(Dune::FieldVector<double,2> const& x) const    { return S3()(x); }
 
   template <class CG, class Node, class Quad, class LocalFct, class Mat>
   void assemble(CG const& contextGeo, Node const& node, Node const& colNode,
@@ -176,6 +185,9 @@ public:
 
       // mean curvature gradient evaluated at QP
       [[maybe_unused]] auto const HAtQP = H(qp.position());
+      auto const S1AtQP = S1(qp.position());
+      auto const S2AtQP = S2(qp.position());
+      auto const S3AtQP = S3(qp.position());
       auto const gradHAtQP = gradH(qp.position());
 
       // normal gradient evaluated at QP
@@ -187,8 +199,27 @@ public:
       S /= nh1_nrm;
       S.rightmultiply(Ph1);
 
+      FieldMatrix<T,3,3> S_variational(0);
+      for (int r = 0; r < 3; ++r) {
+        S_variational[0][r] = S1AtQP[r];
+        S_variational[1][r] = S2AtQP[r];
+        S_variational[2][r] = S3AtQP[r];
+      }
+
+      FieldMatrix<T,3,3> Ph;
+      for (int r = 0; r < 3; ++r) {
+        for (int s = 0; s < 3; ++s) {
+          Ph[r][s] = (r == s ? 1 : 0) - geometry.normal(qp.position())[r]*geometry.normal(qp.position())[s];
+        }
+      }
+      S_variational.rightmultiply(Ph);
+      S_variational.leftmultiply(Ph);
+      auto H_from_S = S[0][0] + S[1][1] + S[2][2];
+      auto H_from_S_var = S_variational[0][0] + S_variational[1][1] + S_variational[2][2];
+      S = S_variational;
       // H = tr(S)
-      auto H = S[0][0] + S[1][1] + S[2][2];
+      
+      auto const& H = HAtQP; 
       // S^2
       FieldMatrix<T,3,3> SS(S);
       SS.leftmultiply(S);
@@ -245,7 +276,8 @@ public:
       // ----- compute the actual matrix entries --------------
 
       T mu = Parameters::get<T>("parameters->mu").value_or(1.0);
-      T reg = Parameters::get<T>("parameters->kill regularization").value_or(0.0);
+      T reg = Parameters::get<T>("parameters->kill regularization").value_or(1.0);
+      T Nreg = Parameters::get<T>("parameters->normal kill regularization").value_or(0.0);
       T kappa = Parameters::get<T>("parameters->bending modulus").value_or(1.0);
       double const dt_ = Parameters::get<double>("parameters->dt").value_or(1e-3);
 
@@ -343,7 +375,7 @@ public:
         for (std::size_t j = 0; j < numVnLocalFE; ++j) {
           auto const local_i = vnNode0.localIndex(i);
           auto const local_j = vnNode1.localIndex(j);
-          elementMatrix[local_i][local_j] += (2 * mu * SdotS - 0.0) * vnShapeValues[i] * vnShapeValues[j] * dSh; // tested: do we need killing regularization in the normal MB? -> maybe? but doesnt change a lot
+          elementMatrix[local_i][local_j] += (2 * mu * SdotS + Nreg) * vnShapeValues[i] * vnShapeValues[j] * dSh; // tested: do we need killing regularization in the normal MB? -> maybe? but doesnt change a lot
         }
       }
       // <-pH, y_N>
@@ -390,7 +422,7 @@ public:
         for (std::size_t j = 0; j < numPsiLocalFE; ++j) {
           auto const local_i = pnNode0.localIndex(i);
           auto const local_j = psiNode1.localIndex(j);
-          elementMatrix[local_i][local_j] += dot(psiGradients[j], pnGradients[i]) * dSh;
+          elementMatrix[local_i][local_j] -= dot(psiGradients[j], pnGradients[i]) * dSh;
         }
       }
       // <-v_N H, q>
@@ -398,7 +430,7 @@ public:
         for (std::size_t j = 0; j < numVnLocalFE; ++j) {
           auto const local_i = pnNode0.localIndex(i);
           auto const local_j = vnNode1.localIndex(j);
-          elementMatrix[local_i][local_j] -= H * vnShapeValues[j] * pnShapeValues[i] * dSh;
+          elementMatrix[local_i][local_j] += H * vnShapeValues[j] * pnShapeValues[i] * dSh;
         }
       }
       // ---== BGN ==---
@@ -440,7 +472,7 @@ public:
           for (int r = 0; r < 3; ++r) {
             auto const local_i = YNode0.child(r).localIndex(i);
             auto const local_j = HNode1.localIndex(j);
-            elementMatrix[local_i][local_j] += HShapeValues[j] * YShapeValues[i]*nh1[r] * dSh;
+            elementMatrix[local_i][local_j] -= HShapeValues[j] * YShapeValues[i]*nh1[r] * dSh;
           }
         }
       }

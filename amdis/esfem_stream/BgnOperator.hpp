@@ -176,7 +176,7 @@ public:
           for (int r = 0; r < 3; ++r) {
             auto const local_i = yNode0.child(r).localIndex(i);
             auto const local_j = hNode1.localIndex(j);
-            elementMatrix[local_i][local_j] += hShapeValues[j] * yShapeValues[i]*nh1[r] * dSh;
+            elementMatrix[local_i][local_j] -= hShapeValues[j] * yShapeValues[i]*nh1[r] * dSh;
           }
         }
       }

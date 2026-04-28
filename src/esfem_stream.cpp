@@ -38,6 +38,7 @@ auto const _vn = Dune::Indices::_3;
 auto const _pn = Dune::Indices::_4;
 auto const _Hn = Dune::Indices::_5;
 auto const _Yn = Dune::Indices::_6;
+auto const _rn = Dune::Indices::_7;
 
 auto const _Y = Dune::Indices::_0;
 auto const _H = Dune::Indices::_1;
@@ -46,6 +47,8 @@ auto const _S1 = Dune::Indices::_0;
 auto const _S2 = Dune::Indices::_1;
 auto const _S3 = Dune::Indices::_2;
 auto const _HH = Dune::Indices::_3;
+
+auto const _H0 = Dune::Indices::_0;
 
 auto const _u = Dune::Indices::_0;
 auto const _p = Dune::Indices::_1;
@@ -76,12 +79,13 @@ int main(int argc, char** argv)
   double factor{Parameters::get<double>("init->spherical harmonic->perturbation factor").value()};
   double radius{Parameters::get<double>("init->spherical harmonic->radius").value()};
   // auto const surface = SphericalHarmonic{l,m,factor,radius};
-  auto const surface = PerturbedSphere{};
+  double r0{Parameters::get<double>("init->perturbed sphere->r0").value()};
+  auto const surface = PerturbedSphere{r0};
   
   std::unique_ptr<AdaptiveHostGrid> adaptiveHostGridPtr = std::make_unique<AdaptiveHostGrid>(*hostGridPtr);
 
   int constexpr kg = 2; // order of geometry
-  int constexpr ku = 2; // lagrange order of esfem streamfunction problem
+  int constexpr ku = 1; // lagrange order of esfem streamfunction problem
   // tested: same and different orders
 
   auto surfaceBasisFactory = power<3>(lagrange<kg>(), blockedInterleaved());
@@ -110,6 +114,9 @@ int main(int argc, char** argv)
   ProblemStat bgnProb("bgn", adaptiveGrid, bgnBasisFactory);
   bgnProb.initialize(INIT_ALL);
 
+  ProblemStat initCurvature("initH", adaptiveGrid, lagrange<3>());
+  initCurvature.initialize(INIT_ALL);
+
   auto implBasisFactory = composite(
   lagrange<ku>(),                 // phi
   lagrange<ku>(),                 // psi
@@ -133,7 +140,6 @@ int main(int argc, char** argv)
 
   // Refine and interpolate surface
   adaptiveGrid.globalRefine(Parameters::get<int>("postprocessing->level").value_or(0));
-  // bgnProb.globalRefine(Parameters::get<int>("postprocessing->level").value_or(1));
 
   surfaceFct << [&](FieldVector<double,3> const& x) { return surface(x); };
   surfaceIdentityFct << [](FieldVector<double,3> const& x) { return x; };
@@ -157,7 +163,7 @@ int main(int argc, char** argv)
   geoProb.addMatrixOperator( makeOperator(tag::testvec_trialvec{}, 1.0), _S2, _S2 );
   geoProb.addMatrixOperator( makeOperator(tag::testvec_trialvec{}, 1.0), _S3, _S3 );
   geoProb.addMatrixOperator( makeOperator(tag::testvec_trialvec{}, 1.0), _HH, _HH );
-  geoProb.addVectorOperator( makeOperator(tag::geo_rhs{}, gradientOf(surfaceIdentityFct)) );
+  geoProb.addVectorOperator( makeOperator(tag::geo_rhs{}, -gradientOf(surfaceIdentityFct)) );
 
   // ---== Define streamfunction problem ==---
   std::array<double,3> data;
@@ -189,7 +195,11 @@ int main(int argc, char** argv)
 
   // ---== Define implicit streamfunction + BGN problem ==---
   auto H_old = makeGridFunction(implProb.solution(_Hn), prob.globalBasis()->gridView());
-  implProb.addMatrixOperator( makeOperator(tag::impl_stream_function{kg, kh, surface, data, std::true_type{}, H_old}, 1.0) );
+  implProb.addMatrixOperator( 
+    makeOperator(
+      tag::impl_stream_function{kg, kh, surface, data, std::true_type{},
+       H_old, geoProb.solution(_S1), geoProb.solution(_S2), geoProb.solution(_S3)}, 1.0) 
+      );
   implProb.addVectorOperator( makeOperator(tag::impl_stream_function_rhs{kh, surface, H_old}, f, 20) );
 
   // ---== Define reconstruction problem ==---
@@ -204,6 +214,10 @@ int main(int argc, char** argv)
   Dune::Vtk::LagrangeDataCollector dataCollector(bgnProb.gridView(), order_writer);
   Dune::Vtk::UnstructuredGridWriter writer(dataCollector);
   Dune::Vtk::PvdWriter pvdwriter(writer);
+
+  std::string outputFilename = "log.csv";
+  Parameters::get("output->write files->filename", outputFilename);
+  std::ofstream out(outputFilename, std::ios_base::app);
   
   // Add point data to writer
   {
@@ -214,7 +228,7 @@ int main(int argc, char** argv)
     // pvdwriter.addPointData(prob.solution(_pn), Dune::Vtk::FieldInfo{"pn", 1, Dune::Vtk::RangeTypes::SCALAR});
     // pvdwriter.addPointData(prob.solution(_Hn), Dune::Vtk::FieldInfo{"Hn", 1, Dune::Vtk::RangeTypes::SCALAR});
 
-    pvdwriter.addPointData(bgnProb.solution(_H), Dune::Vtk::FieldInfo{"H", 1, Dune::Vtk::RangeTypes::SCALAR});
+    // pvdwriter.addPointData(bgnProb.solution(_H), Dune::Vtk::FieldInfo{"H", 1, Dune::Vtk::RangeTypes::SCALAR});
     // pvdwriter.addPointData(bgnProb.solution(_Y), Dune::Vtk::FieldInfo{"Y", 3, Dune::Vtk::RangeTypes::VECTOR});
 
     pvdwriter.addPointData(reconstructionProb.solution(_u), Dune::Vtk::FieldInfo{"U", 3, Dune::Vtk::RangeTypes::VECTOR});
@@ -226,6 +240,7 @@ int main(int argc, char** argv)
     pvdwriter.addPointData(implProb.solution(_pn), Dune::Vtk::FieldInfo{"impl_pn", 1, Dune::Vtk::RangeTypes::SCALAR});
     pvdwriter.addPointData(implProb.solution(_Hn), Dune::Vtk::FieldInfo{"impl_Hn", 1, Dune::Vtk::RangeTypes::SCALAR});
     pvdwriter.addPointData(implProb.solution(_Yn), Dune::Vtk::FieldInfo{"impl_Yn", 3, Dune::Vtk::RangeTypes::VECTOR});
+    pvdwriter.addPointData(implProb.solution(_rn), Dune::Vtk::FieldInfo{"impl_r", 1, Dune::Vtk::RangeTypes::SCALAR});
     pvdwriter.addPointData(f, Dune::Vtk::FieldInfo{"f", 3, Dune::Vtk::RangeTypes::VECTOR});
 
     pvdwriter.addPointData(geoProb.solution(_S1), Dune::Vtk::FieldInfo{"S1", 3, Dune::Vtk::RangeTypes::VECTOR});
@@ -237,15 +252,19 @@ int main(int argc, char** argv)
   // Assemble and solve linear systems
   AdaptInfo adaptInfo("adapt");
 
-  msg("---== Solving BGN problem ==---");
-  bgnProb.assemble(adaptInfo);
-  bgnProb.solve(adaptInfo);
+  msg("---== Solving geometry problem ==---");
+  geoProb.assemble(adaptInfo);
+  geoProb.solve(adaptInfo);
 
-  implProb.solution(_Hn) << bgnProb.solution(_H);
+  implProb.solution(_Hn).interpolate( dot(geoProb.solution(_HH), averageNormalFct));
 
   for (int step = 0; step < numSteps; ++step) {
 
     msg("///////////////// Timestep: " + std::to_string(step+1) + "/" + std::to_string(numSteps));
+
+    auto area = integrate(1.0, implProb.gridView(), kg+2);
+    auto volume = 1.0/3.0 * integrate(dot(surfaceIdentityFct, averageNormalFct), implProb.gridView(), kg+2);
+    msg("area="+std::to_string(area)+", volume="+std::to_string(volume));
 
     // msg("---== Solving stream function problem ==---");
     // prob.assemble(adaptInfo);
@@ -254,25 +273,15 @@ int main(int argc, char** argv)
     // prob.solution(_psi) << prob.solution(_psi) - integrate(prob.solution(_psi),prob.gridView(),ku+kg+3)/area;
     // prob.solution(_phi) << prob.solution(_phi) - integrate(prob.solution(_phi),prob.gridView(),ku+kg+3)/area;
 
-    // msg("---== Solving geometry problem ==---");
-    // surfaceIdentityFct << [](FieldVector<double,3> const& x) { return x; };
-    // geoProb.assemble(adaptInfo);
-    // geoProb.solve(adaptInfo);
-    // TODO: add the computed shape operator to implProb to see if that changes something
-
     msg("---== Solving full BGN+stream problem ==---");
     implProb.assemble(adaptInfo);
     implProb.solve(adaptInfo);
-    auto area = integrate(1.0, implProb.gridView(), kg+2);
     implProb.solution(_psi) << implProb.solution(_psi) - integrate(implProb.solution(_psi),implProb.gridView(),ku+kg+3)/area;
     implProb.solution(_phi) << implProb.solution(_phi) - integrate(implProb.solution(_phi),implProb.gridView(),ku+kg+3)/area;
 
     msg("---== Solving reconstruction problem ==---");
     reconstructionProb.assemble(adaptInfo);
     reconstructionProb.solve(adaptInfo);
-
-    // writer.write("output/esfem1");
-    pvdwriter.writeTimestep(t, "esfemstr", "output/");
 
     // Evolve surface
     auto& X = surfaceFct.coefficients().impl().vector();
@@ -282,8 +291,16 @@ int main(int argc, char** argv)
     auto const& dx = dXFct.coefficients().impl().vector();
     X += dx;
 
+    averageNormalFct.interpolate_noalias(normalFct, tag::average{});
+    surfaceIdentityFct << [](FieldVector<double,3> const& x) { return x; };
+
+    msg("---== Solving geometry problem ==---");
+    geoProb.assemble(adaptInfo);
+    geoProb.solve(adaptInfo);
+
     t += dt;
-    // writer.write("output/esfem2");
+    pvdwriter.writeTimestep(t, "esfemstr", "output/");
+    out << t << "," << area << "," << volume << std::endl;
   }
 
 }

@@ -129,8 +129,9 @@ struct SphericalHarmonic {
 
 struct PerturbedSphere {
 
-  PerturbedSphere()
-    : mean_curvature{}
+  PerturbedSphere(double r0)
+    : r0_(r0)
+    , mean_curvature{}
      {}
 
   Dune::FieldVector<double,3> operator()(Dune::FieldVector<double,3> const& x) const
@@ -139,8 +140,7 @@ struct PerturbedSphere {
     double theta{std::acos(x[2]/x.two_norm())};
     double phi{std::abs(x[2]-x.two_norm())/x.two_norm() > 1.e-4 ? std::atan2(x[1],x[0]) : 0.};
 
-    double constexpr r0 = 0.4;
-    double R = 1.0 + r0 * std::cos(phi) * std::sin(3*theta);
+    double R = 1.0 + r0_ * std::cos(phi) * std::sin(3*theta);
     return R * x / x.two_norm();
   };
 
@@ -153,4 +153,6 @@ struct PerturbedSphere {
   };
 
   MeanCurvature mean_curvature;
+  private:
+  double r0_;
 };
