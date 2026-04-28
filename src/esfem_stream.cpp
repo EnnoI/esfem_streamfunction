@@ -74,10 +74,10 @@ int main(int argc, char** argv)
   using Reader = Dune::GmshReader<HostGrid>;
   auto hostGridPtr = Reader::read(meshfile,true,false);
   // auto const surface = Sphere{};
-  unsigned l{Parameters::get<unsigned>("init->spherical harmonic->l").value()};
-  int m{Parameters::get<int>("init->spherical harmonic->m").value()};
-  double factor{Parameters::get<double>("init->spherical harmonic->perturbation factor").value()};
-  double radius{Parameters::get<double>("init->spherical harmonic->radius").value()};
+  // unsigned l{Parameters::get<unsigned>("init->spherical harmonic->l").value()};
+  // int m{Parameters::get<int>("init->spherical harmonic->m").value()};
+  // double factor{Parameters::get<double>("init->spherical harmonic->perturbation factor").value()};
+  // double radius{Parameters::get<double>("init->spherical harmonic->radius").value()};
   // auto const surface = SphericalHarmonic{l,m,factor,radius};
   double r0{Parameters::get<double>("init->perturbed sphere->r0").value()};
   auto const surface = PerturbedSphere{r0};
@@ -148,6 +148,8 @@ int main(int argc, char** argv)
   implProb.solution(_Hn) << [&](FieldVector<double,3> const& x) { return surface.mean_curvature(x); };
 
   // General parameters
+  double const kappa{Parameters::get<double>("parameters->bending modulus").value()};
+  double const mu{Parameters::get<double>("parameters->bending modulus").value()};
   // Time stepping
   double t = 0;
   double const dt = Parameters::get<double>("parameters->dt").value_or(1e-3);
@@ -194,13 +196,12 @@ int main(int argc, char** argv)
   bgnProb.addMatrixOperator( makeOperator(tag::bgn{kh, surface}, averageNormalFct, kg) );
 
   // ---== Define implicit streamfunction + BGN problem ==---
-  auto H_old = makeGridFunction(implProb.solution(_Hn), prob.globalBasis()->gridView());
   implProb.addMatrixOperator( 
     makeOperator(
       tag::impl_stream_function{kg, kh, surface, data, std::true_type{},
-       H_old, geoProb.solution(_S1), geoProb.solution(_S2), geoProb.solution(_S3)}, 1.0) 
+       implProb.solution(_Hn), geoProb.solution(_S1), geoProb.solution(_S2), geoProb.solution(_S3)}, 1.0) 
       );
-  implProb.addVectorOperator( makeOperator(tag::impl_stream_function_rhs{kh, surface, H_old}, f, 20) );
+  implProb.addVectorOperator( makeOperator(tag::impl_stream_function_rhs{kh, surface, implProb.solution(_Hn)}, f, 20) );
 
   // ---== Define reconstruction problem ==---
   // <u, v> = <curl phi* + grad psi*, v>
@@ -258,13 +259,20 @@ int main(int argc, char** argv)
 
   implProb.solution(_Hn).interpolate( dot(geoProb.solution(_HH), averageNormalFct));
 
+  // log values
+  double area, volume, Hf, kinetic;
+
   for (int step = 0; step < numSteps; ++step) {
 
     msg("///////////////// Timestep: " + std::to_string(step+1) + "/" + std::to_string(numSteps));
 
-    auto area = integrate(1.0, implProb.gridView(), kg+2);
-    auto volume = 1.0/3.0 * integrate(dot(surfaceIdentityFct, averageNormalFct), implProb.gridView(), kg+2);
-    msg("area="+std::to_string(area)+", volume="+std::to_string(volume));
+    area = integrate(1.0, implProb.gridView(), kg+2);
+    volume = 1.0/3.0 * integrate(dot(surfaceIdentityFct, averageNormalFct), implProb.gridView(), kg*kg+2);
+    Hf = 2 * kappa * integrate(implProb.solution(_Hn)*implProb.solution(_Hn), implProb.gridView(), ku*ku+2);
+    kinetic = mu * integrate(dot(reconstructionProb.solution(_u), reconstructionProb.solution(_u)), implProb.gridView(), ku*ku+2);
+    
+    out << t << "," << area << "," << volume << "," << Hf << "," << kinetic << std::endl;
+
 
     // msg("---== Solving stream function problem ==---");
     // prob.assemble(adaptInfo);
@@ -300,7 +308,7 @@ int main(int argc, char** argv)
 
     t += dt;
     pvdwriter.writeTimestep(t, "esfemstr", "output/");
-    out << t << "," << area << "," << volume << std::endl;
   }
+  out << t << "," << area << "," << volume << "," << Hf << "," << kinetic << std::endl;
 
 }

@@ -5,6 +5,9 @@ build-*/
 # vscode
 .vscode/
 
+# python venv
+.venv/
+
 # Prerequisites
 *.d
 

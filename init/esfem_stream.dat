@@ -5,9 +5,9 @@ parameters->kill regularization: 1.0
 parameters->normal kill regularization: 1.0 % used for debugging. should be = kill regularization
 parameters->mu: 1.0
 parameters->kh: 2
-parameters->dt: 0.2
-parameters->tend: 10.2
-parameters->f_T: 0.00 % 667
+parameters->dt: 0.5
+parameters->tend: 100.0
+parameters->f_T: 0.0 % 0667
 parameters->c: 1.0
 parameters->d: 0.9
 
