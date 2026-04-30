@@ -79,6 +79,10 @@ int main(int argc, char** argv)
   // double factor{Parameters::get<double>("init->spherical harmonic->perturbation factor").value()};
   // double radius{Parameters::get<double>("init->spherical harmonic->radius").value()};
   // auto const surface = SphericalHarmonic{l,m,factor,radius};
+  // double A{Parameters::get<double>("init->ellipsoid->A").value()};
+  // double B{Parameters::get<double>("init->ellipsoid->B").value()};
+  // double C{Parameters::get<double>("init->ellipsoid->C").value()};
+  // auto const surface = Ellipsoid{A,B,C};
   double r0{Parameters::get<double>("init->perturbed sphere->r0").value()};
   auto const surface = PerturbedSphere{r0};
   
@@ -86,9 +90,10 @@ int main(int argc, char** argv)
 
   int constexpr kg = 2; // order of geometry
   int constexpr ku = 1; // lagrange order of esfem streamfunction problem
+  bool const use_volume_constraint{Parameters::get<bool>("parameters->use volume constraint").value()};
   // tested: same and different orders
 
-  auto surfaceBasisFactory = power<3>(lagrange<kg>(), blockedInterleaved());
+  auto surfaceBasisFactory = power<3>(lagrange<kg>(), flatInterleaved());
   GlobalBasis hostSurfaceBasis{adaptiveHostGridPtr->leafGridView(), surfaceBasisFactory};
   auto surfaceFctDOF = makeDOFVector(hostSurfaceBasis);
   auto surfaceFct = valueOf(surfaceFctDOF);
@@ -106,16 +111,13 @@ int main(int argc, char** argv)
   auto surfaceIdentityFct = valueOf(surfaceIdentityFctDOF);
 
   // Define problems
-  using Prob = ProblemStat<LagrangeBasis<Grid,ku,ku,ku,ku,ku,ku>>; // phi,psi,omega,vn,pn,Hn
-  Prob prob("esfem_stream", adaptiveGrid);
-  prob.initialize(INIT_ALL);
+  // using Prob = ProblemStat<LagrangeBasis<Grid,ku,ku,ku,ku,ku,ku>>; // phi,psi,omega,vn,pn,Hn
+  // Prob prob("esfem_stream", adaptiveGrid);
+  // prob.initialize(INIT_ALL);
 
-  auto bgnBasisFactory = composite(surfaceBasisFactory, lagrange<kg>()); // Y, H
-  ProblemStat bgnProb("bgn", adaptiveGrid, bgnBasisFactory);
-  bgnProb.initialize(INIT_ALL);
-
-  ProblemStat initCurvature("initH", adaptiveGrid, lagrange<3>());
-  initCurvature.initialize(INIT_ALL);
+  // auto bgnBasisFactory = composite(surfaceBasisFactory, lagrange<kg>()); // Y, H
+  // ProblemStat bgnProb("bgn", adaptiveGrid, bgnBasisFactory);
+  // bgnProb.initialize(INIT_ALL);
 
   auto implBasisFactory = composite(
   lagrange<ku>(),                 // phi
@@ -125,16 +127,16 @@ int main(int argc, char** argv)
   lagrange<ku>(),                 // pn
   lagrange<ku>(),                 // Hn
   surfaceBasisFactory,            // Yn
-  scalar());                      // int vn = 0
+  scalar(), blockedLexicographic());   // int vn = 0
   ProblemStat implProb("impl_stream", adaptiveGrid, implBasisFactory);
   implProb.initialize(INIT_ALL);
 
-  auto vecBasis = power<3>(lagrange<2>(), blockedInterleaved());
+  auto vecBasis = power<3>(lagrange<kg>(), flatInterleaved());
   auto geoBasisFactory = composite(vecBasis, vecBasis, vecBasis, vecBasis);
   ProblemStat geoProb("geometry",  adaptiveGrid, geoBasisFactory);
   geoProb.initialize(INIT_ALL); 
 
-  auto reconstructionBasisFactory = composite(power<3>(lagrange<ku>()), lagrange<1>());
+  auto reconstructionBasisFactory = composite(power<3>(lagrange<ku>(), flatInterleaved()), lagrange<1>(), blockedLexicographic());
   ProblemStat reconstructionProb("reconstruction", adaptiveGrid, reconstructionBasisFactory);
   reconstructionProb.initialize(INIT_ALL);
 
@@ -143,9 +145,6 @@ int main(int argc, char** argv)
 
   surfaceFct << [&](FieldVector<double,3> const& x) { return surface(x); };
   surfaceIdentityFct << [](FieldVector<double,3> const& x) { return x; };
-  // prob.solution(_Hn) << [](FieldVector<double,3> const& x) { return -2.0; };
-  bgnProb.solution(_H) << [&](FieldVector<double,3> const& x) { return surface.mean_curvature(x); };
-  implProb.solution(_Hn) << [&](FieldVector<double,3> const& x) { return surface.mean_curvature(x); };
 
   // General parameters
   double const kappa{Parameters::get<double>("parameters->bending modulus").value()};
@@ -169,38 +168,43 @@ int main(int argc, char** argv)
 
   // ---== Define streamfunction problem ==---
   std::array<double,3> data;
-  auto Hgf = makeGridFunction(bgnProb.solution(_H), prob.globalBasis()->gridView());
-  prob.addMatrixOperator( makeOperator(tag::stream_function{kg, kh, surface, data, Hgf}, 1.0) );
+  // auto Hgf = makeGridFunction(bgnProb.solution(_H), prob.globalBasis()->gridView());
+  // prob.addMatrixOperator( makeOperator(tag::stream_function{kg, kh, surface, data, Hgf}, 1.0) );
 
-  auto f00 = F{c,d};
-  auto f0 = [&](FieldVector<double,3> const& x) { 
-    FieldVector<double,3> fx = x/x.two_norm();
-    // fx[0] *= std::cos(fx[0]);
-    // fx[1] *= -std::sin(fx[1]);
-    // fx[2] *= fx[2];
+  // auto f00 = F{c,d};
+  // auto f0 = [&](FieldVector<double,3> const& x) { 
+  //   FieldVector<double,3> fx = x/x.two_norm();
     
-    return alpha * f00(fx); 
+  //   return alpha * f00(fx); 
+  // };
+   auto f0 = [&](FieldVector<double,3> const& x) { 
+    FieldVector<double,3> fx(0);
+    fx[0] = x[1];
+    fx[1] = - x[0];
+    return alpha * fx; 
   };
   auto f = Dune::analyticGridFunction<Grid>(f0);
-  prob.addVectorOperator( makeOperator(tag::streamfunction_rhs{kh, surface, Hgf}, f, 20) );
+  auto normalFct = normalGeometryGridFunction(implProb.gridView());
+  auto averageNormalDOF = makeDOFVector(surfaceBasis); 
+  auto averageNormalFct = valueOf(averageNormalDOF);
+  averageNormalFct.interpolate_noalias(normalFct, tag::average{});
+  // prob.addVectorOperator( makeOperator(tag::streamfunction_rhs{kh, surface, Hgf}, f, 20) );
 
   // ---== Define BGN problem ==---
   // <H*n, y> + <grad Y, grad y> = -<grad X, grad y>
   // <Y * n, h> = <vn*dt, h>
-  auto vn = [](FieldVector<double,3> const& x)->double { return std::cos(x[0]+x[1]); }; // tested: does given vn make it more stable? -> yes
-  bgnProb.addVectorOperator( makeOperator(tag::bgnrhs{kh, dt, surface}, prob.solution(_vn), ku) );
-  auto normalFct = normalGeometryGridFunction(bgnProb.gridView());
-  auto averageNormalDOF = makeDOFVector(surfaceBasis); 
-  auto averageNormalFct = valueOf(averageNormalDOF);
-  averageNormalFct.interpolate_noalias(normalFct, tag::average{}); // tested: is this better than the local interpolated normals? -> not noticable
-  bgnProb.addMatrixOperator( makeOperator(tag::bgn{kh, surface}, averageNormalFct, kg) );
+  // bgnProb.addVectorOperator( makeOperator(tag::bgnrhs{kh, dt, surface}, prob.solution(_vn), ku) );
+  // bgnProb.addMatrixOperator( makeOperator(tag::bgn{kh, surface}, averageNormalFct, kg) );
 
   // ---== Define implicit streamfunction + BGN problem ==---
-  implProb.addMatrixOperator( 
-    makeOperator(
-      tag::impl_stream_function{kg, kh, surface, data, std::true_type{},
-       implProb.solution(_Hn), geoProb.solution(_S1), geoProb.solution(_S2), geoProb.solution(_S3)}, 1.0) 
-      );
+  auto op_with_constraint = makeOperator(tag::impl_stream_function{kg, kh, surface, data, std::true_type{},
+       implProb.solution(_Hn), geoProb.solution(_S1), geoProb.solution(_S2), geoProb.solution(_S3)}, 1.0);
+  auto op_without_contraint = makeOperator(tag::impl_stream_function{kg, kh, surface, data, std::false_type{},
+       implProb.solution(_Hn), geoProb.solution(_S1), geoProb.solution(_S2), geoProb.solution(_S3)}, 1.0);
+  if (use_volume_constraint) 
+    implProb.addMatrixOperator( op_with_constraint );
+  else
+    implProb.addMatrixOperator( op_without_contraint );
   implProb.addVectorOperator( makeOperator(tag::impl_stream_function_rhs{kh, surface, implProb.solution(_Hn)}, f, 20) );
 
   // ---== Define reconstruction problem ==---
@@ -212,7 +216,7 @@ int main(int argc, char** argv)
 
   // Define writer
   int order_writer = Parameters::get<int>("surface->write files->order").value_or(1);
-  Dune::Vtk::LagrangeDataCollector dataCollector(bgnProb.gridView(), order_writer);
+  Dune::Vtk::LagrangeDataCollector dataCollector(implProb.gridView(), order_writer);
   Dune::Vtk::UnstructuredGridWriter writer(dataCollector);
   Dune::Vtk::PvdWriter pvdwriter(writer);
 
@@ -261,6 +265,7 @@ int main(int argc, char** argv)
 
   // log values
   double area, volume, Hf, kinetic;
+  pvdwriter.writeTimestep(t, "esfemstr", "output/");
 
   for (int step = 0; step < numSteps; ++step) {
 
@@ -269,7 +274,7 @@ int main(int argc, char** argv)
     area = integrate(1.0, implProb.gridView(), kg+2);
     volume = 1.0/3.0 * integrate(dot(surfaceIdentityFct, averageNormalFct), implProb.gridView(), kg*kg+2);
     Hf = 2 * kappa * integrate(implProb.solution(_Hn)*implProb.solution(_Hn), implProb.gridView(), ku*ku+2);
-    kinetic = mu * integrate(dot(reconstructionProb.solution(_u), reconstructionProb.solution(_u)), implProb.gridView(), ku*ku+2);
+    kinetic = mu * integrate(dot(reconstructionProb.solution(_u), reconstructionProb.solution(_u)) + implProb.solution(_vn)*implProb.solution(_vn), implProb.gridView(), ku*ku+2);
     
     out << t << "," << area << "," << volume << "," << Hf << "," << kinetic << std::endl;
 

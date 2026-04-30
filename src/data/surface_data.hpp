@@ -129,7 +129,7 @@ struct SphericalHarmonic {
 
 struct PerturbedSphere {
 
-  PerturbedSphere(double r0)
+  PerturbedSphere(double const r0)
     : r0_(r0)
     , mean_curvature{}
      {}
@@ -155,4 +155,51 @@ struct PerturbedSphere {
   MeanCurvature mean_curvature;
   private:
   double r0_;
+};
+
+
+class Ellipsoid
+{
+template<class T>
+static std::array<T,2> angles(Dune::FieldVector<T, 3> const& x) {
+  using std::sqrt;
+  using std::atan2;
+  using std::acos;
+  std::array<T,2> result;
+  result[0] = acos(x[2]/x.two_norm() ); //theta in [0, pi]
+  result[1] = atan2(x[1], x[0]); // phi in  [0, 2pi]
+  return result;
+}
+public:
+	Ellipsoid(double A, double B, double C)
+	: A_(A), B_(B), C_(C)
+	{}
+
+	Dune::FieldVector<double,3> operator()(Dune::FieldVector<double,3> const& x) const
+  {
+		auto[theta, phi] = angles(x);
+    using std::sin;
+    using std::cos;
+		return Dune::FieldVector<double,3>{A_ * sin(theta) *cos(phi) , B_ * sin(theta) *sin(phi) , C_ * cos(theta)};
+	}
+
+
+  friend auto derivative(Ellipsoid const& ell){
+    return [a = ell.A_, b = ell.B_, c = ell.C_](auto const& x){
+		  auto[theta, phi] = angles(x);
+      using std::sin;
+      using std::cos;
+      auto sinPhi = sin(phi);
+      auto sinTheta = sin(theta);
+      auto cosPhi = cos(phi);
+      auto cosTheta = cos(theta);
+      return Dune::FieldMatrix<double,3, 2>{{a*cosTheta*cosPhi, -a*sinTheta*sinPhi},
+                                            {b*cosTheta*sinPhi, b*sinTheta*cosPhi},
+                                            {-c*sinTheta, 0.}};
+    };
+  }
+
+private:
+	double A_, B_, C_;
+
 };
